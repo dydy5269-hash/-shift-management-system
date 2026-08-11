@@ -4399,150 +4399,96 @@ function renderExcel() {
   syncCard.appendChild(mkEl("div","font-size:10px;color:#475569;margin-top:8px;","⚠️ Import will overwrite all current data on this device. Make sure to export first if needed."));
   p2.appendChild(syncCard);
 
-  // ── GitHub Sync ────────────────────────────────────────────────────────
+  // ── GitHub Gist Sync ──────────────────────────────────────────────────
   var ghCard = mkEl("div","background:#0F172A;border:1px solid #334155;border-radius:10px;padding:13px;margin-top:13px;");
   ap(ghCard,
-    mkEl("div","font-size:12px;font-weight:700;color:#F8FAFC;margin-bottom:2px;","🐙 GitHub Sync"),
-    mkEl("div","font-size:10px;color:#64748B;margin-bottom:10px;","Save data to GitHub — access from any device (iPad, phone, laptop)")
+    mkEl("div","font-size:12px;font-weight:700;color:#F8FAFC;margin-bottom:2px;","🐙 GitHub Sync (Gist)"),
+    mkEl("div","font-size:10px;color:#64748B;margin-bottom:10px;","Save to private GitHub Gist — no repo needed, no secret detection issues")
   );
-
-  // Config inputs
   var ghCfg = STATE.rules && STATE.rules.githubCfg ? STATE.rules.githubCfg : {};
-
   var ghTokenInp = document.createElement("input");
-  ghTokenInp.type = "password"; ghTokenInp.placeholder = "GitHub Personal Access Token (repo scope)";
-  ghTokenInp.value = ghCfg.token || "";
-  ghTokenInp.style.cssText = "width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:6px;box-sizing:border-box;font-family:inherit;";
-
-  var ghRepoInp = document.createElement("input");
-  ghRepoInp.type = "text"; ghRepoInp.placeholder = "username/repo-name  (e.g. ahmed/shift-data)";
-  ghRepoInp.value = ghCfg.repo || "";
-  ghRepoInp.style.cssText = "width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:6px;box-sizing:border-box;font-family:inherit;";
-
-  var ghFileInp = document.createElement("input");
-  ghFileInp.type = "text"; ghFileInp.placeholder = "File name (e.g. shift-backup.json)";
-  ghFileInp.value = ghCfg.file || "shift-backup.json";
-  ghFileInp.style.cssText = "width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:10px;box-sizing:border-box;font-family:inherit;";
-
+  ghTokenInp.type="password"; ghTokenInp.placeholder="GitHub Token (gist scope)";
+  ghTokenInp.value=ghCfg.token||"";
+  ghTokenInp.style.cssText="width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:6px;box-sizing:border-box;font-family:inherit;";
+  var ghGistInp = document.createElement("input");
+  ghGistInp.type="text"; ghGistInp.placeholder="Gist ID (auto-filled after first save)";
+  ghGistInp.value=ghCfg.gistId||"";
+  ghGistInp.style.cssText="width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:10px;box-sizing:border-box;font-family:inherit;";
   ap(ghCard,
-    mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","🔑 GitHub Token (Settings → Developer Settings → Personal Access Tokens → repo scope):"),
+    mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","🔑 GitHub Token (gist scope only):"),
     ghTokenInp,
-    mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","📁 Repository (username/repo):"),
-    ghRepoInp,
-    mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","📄 Backup file name:"),
-    ghFileInp
+    mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","📋 Gist ID (empty on first use):"),
+    ghGistInp
   );
-
-  var ghStatus = mkEl("div","font-size:10px;color:#64748B;margin-bottom:8px;min-height:16px;","");
+  var ghStatus=mkEl("div","font-size:10px;color:#64748B;margin-bottom:8px;min-height:18px;padding:2px 0;","");
   ghCard.appendChild(ghStatus);
 
-  function ghSaveCfg() {
-    if(!STATE.rules) STATE.rules={};
-    STATE.rules.githubCfg = {
-      token: ghTokenInp.value.trim(),
-      repo:  ghRepoInp.value.trim(),
-      file:  ghFileInp.value.trim() || "shift-backup.json"
-    };
-    sLS("sc6_rules", STATE.rules);
+  function ghSaveCfg2(gid){
+    if(!STATE.rules)STATE.rules={};
+    STATE.rules.githubCfg={token:ghTokenInp.value.trim(),gistId:gid||ghGistInp.value.trim()};
+    sLS("sc6_rules",STATE.rules);
   }
 
-  // Build backup JSON — exclude githubCfg so token never goes into the file
-  function buildBackupJson() {
+  function buildSafeBackup2(){
     var keys=["sc6_admins","sc6_emps","sc6_lreqs","sc6_linkedemployees",
       "sc6_otassign","sc6_slotassign","sc6_lockedmonths","sc6_roletitles",
       "sc6_shiftoverride","sc6_transferlog","sc6_extraranges","sc6_annualplan",
       "sc6_customgroups","sc6_holidays","sc6_leavebalance","sc6_rolehistory","sc6_theme"];
-    var backup={version:2,exportedAt:new Date().toISOString(),data:{}};
-    keys.forEach(function(k){var v=localStorage.getItem(k);if(v)backup.data[k]=v;});
-    // Save rules WITHOUT githubCfg (token must never be written to the file)
-    var rulesRaw=localStorage.getItem("sc6_rules");
-    if(rulesRaw){
-      try{
-        var rulesObj=JSON.parse(rulesRaw);
-        var rulesCopy=JSON.parse(JSON.stringify(rulesObj));
-        delete rulesCopy.githubCfg; // strip token before saving
-        backup.data["sc6_rules"]=JSON.stringify(rulesCopy);
-      }catch(e){/* skip rules if parse fails */}
-    }
-    return JSON.stringify(backup,null,2);
+    var bk={v:2,at:new Date().toISOString().slice(0,16),d:{}};
+    keys.forEach(function(k){var v=localStorage.getItem(k);if(v)bk.d[k]=v;});
+    var rr=localStorage.getItem("sc6_rules");
+    if(rr){try{var ro=JSON.parse(rr);delete ro.githubCfg;bk.d["sc6_rules"]=JSON.stringify(ro);}catch(e){}}
+    return JSON.stringify(bk);
   }
 
-  // Upload to GitHub
-  var ghUpBtn = mkBtn("☁️ Save to GitHub","#1d4ed8",function(){
+  var ghUpBtn=mkBtn("☁️ Save to Gist","#1d4ed8",function(){
     requireAdmin(function(){
-      ghSaveCfg();
-      var token=ghTokenInp.value.trim();
-      var repo=ghRepoInp.value.trim();
-      var file=ghFileInp.value.trim()||"shift-backup.json";
-      if(!token||!repo){ghStatus.textContent="❌ Enter token and repo first";ghStatus.style.color="#F87171";return;}
-      ghStatus.textContent="⏳ Saving to GitHub...";ghStatus.style.color="#94A3B8";
-
-      // First GET to find the SHA (needed for update)
-      fetch("https://api.github.com/repos/"+repo+"/contents/"+file,{
-        headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json"}
-      }).then(function(r){return r.json();}).then(function(existing){
-        var sha = existing.sha || undefined;
-        var content = btoa(unescape(encodeURIComponent(buildBackupJson())));
-        var body = {message:"Shift schedule backup "+new Date().toISOString().slice(0,16), content:content};
-        if(sha) body.sha = sha;
-        return fetch("https://api.github.com/repos/"+repo+"/contents/"+file,{
-          method:"PUT",
-          headers:{"Authorization":"token "+token,"Content-Type":"application/json","Accept":"application/vnd.github.v3+json"},
-          body:JSON.stringify(body)
-        });
-      }).then(function(r){return r.json();}).then(function(res){
-        if(res.content){
-          ghStatus.textContent="✅ Saved to GitHub — "+new Date().toLocaleTimeString();
-          ghStatus.style.color="#34D399";
-        } else {
-          ghStatus.textContent="❌ "+(res.message||"Upload failed");
-          ghStatus.style.color="#F87171";
-        }
-      }).catch(function(e){
-        ghStatus.textContent="❌ Network error: "+e.message;
-        ghStatus.style.color="#F87171";
-      });
-    });
-  },"border-radius:8px;font-size:12px;");
-
-  // Download from GitHub
-  var ghDlBtn = mkBtn("📥 Load from GitHub","#065F46",function(){
-    requireAdmin(function(){
-      ghSaveCfg();
-      var token=ghTokenInp.value.trim();
-      var repo=ghRepoInp.value.trim();
-      var file=ghFileInp.value.trim()||"shift-backup.json";
-      if(!token||!repo){ghStatus.textContent="❌ Enter token and repo first";ghStatus.style.color="#F87171";return;}
-      ghStatus.textContent="⏳ Loading from GitHub...";ghStatus.style.color="#94A3B8";
-
-      fetch("https://api.github.com/repos/"+repo+"/contents/"+file,{
-        headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json"}
-      }).then(function(r){return r.json();}).then(function(data){
-        if(!data.content){throw new Error(data.message||"File not found");}
-        var json=decodeURIComponent(escape(atob(data.content.replace(/\n/g,""))));
-        var backup=JSON.parse(json);
-        var bdata=backup.data||backup;
-        var count=0;
-        for(var k in bdata){if(k.indexOf("sc6_")===0){localStorage.setItem(k,bdata[k]);count++;}}
-        ghStatus.textContent="✅ Loaded "+count+" items — reloading...";
+      var tok=ghTokenInp.value.trim();
+      var gid=ghGistInp.value.trim();
+      if(!tok){ghStatus.style.color="#F87171";ghStatus.textContent="❌ Token required";return;}
+      ghStatus.style.color="#94A3B8";ghStatus.textContent="⏳ Saving...";
+      var body={description:"shift-backup",public:false,files:{"shift-backup.json":{content:buildSafeBackup2()}}};
+      var url=gid?"https://api.github.com/gists/"+gid:"https://api.github.com/gists";
+      var meth=gid?"PATCH":"POST";
+      fetch(url,{method:meth,headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json","Accept":"application/vnd.github+json"},body:JSON.stringify(body)})
+      .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
+      .then(function(res){
+        ghGistInp.value=res.id;ghSaveCfg2(res.id);
         ghStatus.style.color="#34D399";
-        setTimeout(function(){window.location.reload();},1200);
-      }).catch(function(e){
-        ghStatus.textContent="❌ "+e.message;
-        ghStatus.style.color="#F87171";
-      });
+        ghStatus.textContent="✅ Saved — "+new Date().toLocaleTimeString()+" · ID: "+res.id;
+      }).catch(function(e){ghStatus.style.color="#F87171";ghStatus.textContent="❌ "+e.message;});
     });
   },"border-radius:8px;font-size:12px;");
 
-  var ghBtnRow = mkRow("gap:8px;flex-wrap:wrap;");
-  ap(ghBtnRow, ghUpBtn, ghDlBtn);
+  var ghDlBtn=mkBtn("📥 Load from Gist","#065F46",function(){
+    requireAdmin(function(){
+      var tok=ghTokenInp.value.trim();
+      var gid=ghGistInp.value.trim();
+      if(!tok||!gid){ghStatus.style.color="#F87171";ghStatus.textContent="❌ Token and Gist ID required";return;}
+      ghStatus.style.color="#94A3B8";ghStatus.textContent="⏳ Loading...";
+      fetch("https://api.github.com/gists/"+gid,{headers:{"Authorization":"Bearer "+tok,"Accept":"application/vnd.github+json"}})
+      .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})
+      .then(function(res){
+        var f=res.files&&res.files["shift-backup.json"];
+        if(!f)throw new Error("File not found in Gist");
+        var bk=JSON.parse(f.content);
+        var bd=bk.d||bk.data||bk;
+        var cnt=0;
+        for(var k in bd){if(k.indexOf("sc6_")===0){localStorage.setItem(k,bd[k]);cnt++;}}
+        ghStatus.style.color="#34D399";
+        ghStatus.textContent="✅ Loaded "+cnt+" items — reloading...";
+        setTimeout(function(){window.location.reload();},1200);
+      }).catch(function(e){ghStatus.style.color="#F87171";ghStatus.textContent="❌ "+e.message;});
+    });
+  },"border-radius:8px;font-size:12px;");
+
+  var ghBtnRow=mkRow("gap:8px;flex-wrap:wrap;margin-bottom:8px;");
+  ap(ghBtnRow,ghUpBtn,ghDlBtn);
   ghCard.appendChild(ghBtnRow);
-
-  // Setup guide link
-  ghCard.appendChild(mkEl("div","font-size:9px;color:#475569;margin-top:8px;",
-    "📋 Setup: 1) Create free account at github.com  2) New repo (private)  3) Settings → Developer Settings → Tokens (classic) → Generate → select 'repo'  4) Paste token above"));
-
+  ghCard.appendChild(mkEl("div","font-size:9px;color:#475569;line-height:1.7;",
+    "📋 Setup: 1) github.com → Settings → Developer Settings → Personal Access Tokens → Tokens (classic) → Generate → tick gist only  2) Paste token  3) Click Save — Gist ID fills automatically  4) Copy Gist ID to other devices"));
   p2.appendChild(ghCard);
+
   wrap.appendChild(p2); return wrap;
 }
 
