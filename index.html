@@ -4446,14 +4446,24 @@ function renderExcel() {
     sLS("sc6_rules", STATE.rules);
   }
 
-  // Build backup JSON
+  // Build backup JSON — exclude githubCfg so token never goes into the file
   function buildBackupJson() {
-    var keys=["sc6_admins","sc6_emps","sc6_lreqs","sc6_rules","sc6_linkedemployees",
+    var keys=["sc6_admins","sc6_emps","sc6_lreqs","sc6_linkedemployees",
       "sc6_otassign","sc6_slotassign","sc6_lockedmonths","sc6_roletitles",
       "sc6_shiftoverride","sc6_transferlog","sc6_extraranges","sc6_annualplan",
       "sc6_customgroups","sc6_holidays","sc6_leavebalance","sc6_rolehistory","sc6_theme"];
     var backup={version:2,exportedAt:new Date().toISOString(),data:{}};
     keys.forEach(function(k){var v=localStorage.getItem(k);if(v)backup.data[k]=v;});
+    // Save rules WITHOUT githubCfg (token must never be written to the file)
+    var rulesRaw=localStorage.getItem("sc6_rules");
+    if(rulesRaw){
+      try{
+        var rulesObj=JSON.parse(rulesRaw);
+        var rulesCopy=JSON.parse(JSON.stringify(rulesObj));
+        delete rulesCopy.githubCfg; // strip token before saving
+        backup.data["sc6_rules"]=JSON.stringify(rulesCopy);
+      }catch(e){/* skip rules if parse fails */}
+    }
     return JSON.stringify(backup,null,2);
   }
 
