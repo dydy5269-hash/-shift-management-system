@@ -3648,11 +3648,12 @@ function renderStats() {
   var wrap = document.createElement("div");
 
   // ── Leave Balance + OT Warning ────────────────────────────────────────────
-  // Annual leave balance per employee (default 30 days/year)
   var AL_ANNUAL = (STATE.rules && STATE.rules.annualLeaveQuota) || 30;
   var balCard = mkCard("margin-bottom:10px;overflow:hidden;");
-  var balHdr = mkEl("div","background:#1E293B;padding:8px 13px;border-bottom:1px solid #334155;font-size:11px;font-weight:700;color:#94A3B8;","🏖️ Leave Balance & ⏰ OT Status — "+y2);
-  balCard.appendChild(balHdr);
+  var balHdrRow = mkRow("justify-content:space-between;align-items:center;padding:8px 13px;background:#1E293B;border-bottom:1px solid #334155;");
+  balHdrRow.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;","🏖️ Leave Balance & ⏰ OT Status — "+y2));
+  balHdrRow.appendChild(mkBtn("🖨️ Print","#1E3A8A",function(){doPrintLeaveStatus();},"border-radius:6px;font-size:10px;padding:4px 10px;"));
+  balCard.appendChild(balHdrRow);
   var balBody = mkEl("div","padding:8px;overflow-x:auto;");
   var balTbl = document.createElement("table");
   balTbl.style.cssText = "width:100%;border-collapse:collapse;font-size:10px;";
@@ -3845,6 +3846,89 @@ function renderStats() {
   balBody.appendChild(quotaRow);
   balCard.appendChild(balBody);
   wrap.appendChild(balCard);
+
+  // ── Monthly Leave Distribution ────────────────────────────────────────────
+  // Shows AL and C-OFF days per employee per month — helps track when each
+  // employee last took leave
+  (function(){
+    var distCard = mkCard("margin-bottom:10px;overflow:hidden;");
+    var distHdrRow = mkRow("justify-content:space-between;align-items:center;padding:8px 13px;background:#1E293B;border-bottom:1px solid #334155;");
+    distHdrRow.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;","📅 Leave Distribution — "+y2+" (AL & C-OFF by month)"));
+    distHdrRow.appendChild(mkBtn("🖨️ Print","#1E3A8A",function(){doPrintLeaveDistribution();},"border-radius:6px;font-size:10px;padding:4px 10px;"));
+    distCard.appendChild(distHdrRow);
+
+    var distBody = mkEl("div","padding:8px;overflow-x:auto;");
+    var distTbl = document.createElement("table");
+    distTbl.style.cssText = "width:100%;border-collapse:collapse;font-size:10px;";
+
+    // Header: Employee | Grp | Jan | Feb | ... | Dec | Total
+    var dHead = document.createElement("thead");
+    var dHr = document.createElement("tr"); dHr.style.background="#1E3A8A";
+    ["Employee","Grp"].concat(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]).concat(["Total"]).forEach(function(h,i){
+      var th=mkEl("th","padding:5px 6px;color:white;font-weight:700;text-align:center;border-bottom:2px solid #2563EB;white-space:nowrap;font-size:9px;",h);
+      dHr.appendChild(th);
+    });
+    dHead.appendChild(dHr); distTbl.appendChild(dHead);
+    var dBody = document.createElement("tbody");
+
+    // Build data: for each employee count AL+COFF days per month
+    var allEmpsArr2=[];
+    for(var ke2 in emps){
+      if(emps[ke2].group!=="G")allEmpsArr2.push(emps[ke2]);
+    }
+    allEmpsArr2.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
+
+    allEmpsArr2.forEach(function(emp,ri){
+      var monthTotals=new Array(12).fill(0);
+      var grandTotal=0;
+      STATE.lreqs.forEach(function(lr){
+        if(lr.empId!==emp.id||lr.status!=='approved')return;
+        if(lr.lt!=='annual'&&lr.lt!=='coff')return;
+        var fromY=parseInt(lr.from.slice(0,4));
+        if(fromY!==y2)return;
+        rangeD(lr.from,lr.to).forEach(function(ds){
+          if(ds.slice(0,4)!==String(y2))return;
+          var mm=parseInt(ds.slice(5,7))-1; // 0-indexed
+          var dv2=doy(parseDs(ds));
+          var base=shiftFor(emp.gi,dv2);
+          if(base!=='off'){monthTotals[mm]++;grandTotal++;}
+        });
+      });
+
+      var tr3=document.createElement("tr");
+      tr3.style.background=ri%2===0?"#FFFFFF":"#F8FAFC";
+      var rc3=getR(getEmpRoleAtMonth(emp,y2,m2));
+
+      tr3.appendChild(mkEl("td","padding:4px 7px;font-size:10px;color:#1E293B;font-weight:600;border-bottom:1px solid #E2E8F0;white-space:nowrap;",emp.name));
+      var grpTd=mkEl("td","padding:4px 4px;text-align:center;border-bottom:1px solid #E2E8F0;","");
+      grpTd.appendChild(mkChip(emp.group,(GRC[emp.group]||"#fff")+"33",GRC[emp.group]||"#fff"));
+      tr3.appendChild(grpTd);
+
+      monthTotals.forEach(function(v,mi){
+        var hasLeave=v>0;
+        var isCurrentMonth=(mi===m2);
+        var td3=mkEl("td","padding:4px 3px;text-align:center;border-bottom:1px solid #E2E8F0;font-size:9px;"+(isCurrentMonth?"background:#EFF6FF;":""),"");
+        if(hasLeave){
+          var chip=mkEl("div","display:inline-block;background:#FEF3C7;color:#92400E;border-radius:4px;padding:1px 5px;font-weight:700;font-size:9px;",v+"d");
+          td3.appendChild(chip);
+        } else {
+          td3.textContent="—";
+          td3.style.color="#CBD5E1";
+        }
+        tr3.appendChild(td3);
+      });
+
+      // Total
+      var totalTd=mkEl("td","padding:4px 6px;text-align:center;font-weight:800;border-bottom:1px solid #E2E8F0;font-size:10px;color:"+(grandTotal>0?"#1E3A8A":"#CBD5E1")+";background:"+(grandTotal>0?"#EFF6FF":"transparent")+";",grandTotal>0?grandTotal+"d":"—");
+      tr3.appendChild(totalTd);
+      dBody.appendChild(tr3);
+    });
+
+    distTbl.appendChild(dBody);
+    distBody.appendChild(distTbl);
+    distCard.appendChild(distBody);
+    wrap.appendChild(distCard);
+  })();
 
   // ── Original Stats Table ──────────────────────────────────────────────────
   var nav2 = mkRow("margin-bottom:11px;align-items:center;gap:8px;");
@@ -4553,6 +4637,267 @@ function renderAdmins() {
 }
 
 // ── Export / Print ────────────────────────────
+// ── Print Annual Totals ───────────────────────────────────────────────────
+function doPrintAnnualTotals(planYear) {
+  var y = planYear || STATE.planYear || new Date().getFullYear();
+  var allE = []; for(var k in STATE.emps) if(STATE.emps[k].group!=="G") allE.push(STATE.emps[k]);
+  allE.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var LEAVE_TYPES = ["annual","sick","emergency","paternal","coff","training","unpaid","other","overtime"];
+  var LEAVE_LABELS = ["AL","SL","EL","PL","C-OFF","TL","UL","OL","OT"];
+  var lmap_a = buildLmap(STATE.lreqs);
+  var COMP_TYPES_A = ["annual","coff","paternal"];
+
+  var td = "border:1px solid #CBD5E1;padding:4px 6px;font-size:7.5pt;";
+
+  var html = "<!DOCTYPE html><html><head><meta charset='UTF-8'/><style>"
+    +"*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial;padding:12px;background:white;}"
+    +"@page{size:A4 landscape;margin:8mm;}td,th{-webkit-print-color-adjust:exact;print-color-adjust:exact;}"
+    +"@media print{.np{display:none!important;}}"
+    +"</style></head><body>";
+
+  html += "<div class='np' style='margin-bottom:10px;display:flex;gap:8px;'>"
+    +"<button onclick='window.print()' style='background:#1E3A8A;color:white;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;'>🖨️ Print</button>"
+    +"<button onclick='window.close()' style='background:#EF4444;color:white;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;'>✕</button></div>";
+
+  html += "<h2 style='font-size:13pt;margin-bottom:2px;'>Annual Leave Totals — "+y+"</h2>";
+  html += "<p style='font-size:8pt;color:#64748B;margin-bottom:10px;'>All leave types totaled per employee for the year. Generated: "+new Date().toLocaleDateString()+"</p>";
+
+  // ── Section 1: Leave Type Totals ────────────────────────────────────────
+  html += "<h3 style='font-size:10pt;color:#1E3A8A;margin-bottom:6px;border-bottom:2px solid #1E3A8A;padding-bottom:3px;'>1. Leave Type Totals</h3>";
+  html += "<table style='width:100%;border-collapse:collapse;margin-bottom:16px;'>";
+  html += "<thead><tr style='background:#1E3A8A;color:white;'>";
+  html += "<th style='"+td+"color:white;text-align:left;'>Employee</th><th style='"+td+"color:white;'>Grp</th><th style='"+td+"color:white;'>Role</th>";
+  LEAVE_LABELS.forEach(function(lb){ html+="<th style='"+td+"color:white;text-align:center;'>"+lb+"</th>"; });
+  html += "<th style='"+td+"color:white;text-align:center;'>Total</th></tr></thead><tbody>";
+
+  allE.forEach(function(emp, ri) {
+    var counts = {}; LEAVE_TYPES.forEach(function(lt){ counts[lt]=0; });
+    var grandTotal = 0;
+    STATE.lreqs.forEach(function(lr){
+      if(lr.empId!==emp.id||lr.status!=='approved')return;
+      if(parseInt(lr.from.slice(0,4))!==y)return;
+      var lt = lr.lt;
+      if(!counts.hasOwnProperty(lt))return;
+      rangeD(lr.from,lr.to).forEach(function(ds){
+        var dv=doy(parseDs(ds)); var base=shiftFor(emp.gi,dv);
+        if(base!=='off'){counts[lt]++;grandTotal++;}
+      });
+    });
+    var rc = getR(getEmpRoleAtMonth(emp,y,m2||STATE.month));
+    var bg = ri%2===0?"#FFFFFF":"#F8FAFC";
+    html += "<tr style='background:"+bg+"'>";
+    html += "<td style='"+td+"font-weight:bold;'>"+emp.name+"</td>";
+    html += "<td style='"+td+"text-align:center;'>"+emp.group+"</td>";
+    html += "<td style='"+td+"text-align:center;background:"+rc.cl+"22;color:"+rc.cl+";font-weight:bold;'>"+getRTitle(rc.sh)+"</td>";
+    LEAVE_TYPES.forEach(function(lt,i){
+      var v=counts[lt]||0;
+      html+="<td style='"+td+"text-align:center;"+(v>0?"font-weight:bold;":"color:#CBD5E1;")+";'>"+(v>0?v+"d":"—")+"</td>";
+    });
+    html += "<td style='"+td+"text-align:center;font-weight:bold;color:#1E3A8A;background:#EFF6FF;'>"+(grandTotal>0?grandTotal+"d":"—")+"</td>";
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+
+  // ── Section 2: Monthly Distribution (AL + C-OFF only) ───────────────────
+  html += "<h3 style='font-size:10pt;color:#065F46;margin-bottom:6px;border-bottom:2px solid #065F46;padding-bottom:3px;'>2. Monthly Distribution (AL & C-OFF)</h3>";
+  html += "<table style='width:100%;border-collapse:collapse;margin-bottom:16px;'>";
+  html += "<thead><tr style='background:#065F46;color:white;'>";
+  html += "<th style='"+td+"color:white;text-align:left;'>Employee</th><th style='"+td+"color:white;'>Grp</th>";
+  MONTHS.forEach(function(mn){ html+="<th style='"+td+"color:white;text-align:center;'>"+mn+"</th>"; });
+  html += "<th style='"+td+"color:white;text-align:center;'>Total</th></tr></thead><tbody>";
+
+  allE.forEach(function(emp, ri) {
+    var mt=new Array(12).fill(0), gt=0;
+    STATE.lreqs.forEach(function(lr){
+      if(lr.empId!==emp.id||lr.status!=='approved')return;
+      if(lr.lt!=='annual'&&lr.lt!=='coff')return;
+      if(parseInt(lr.from.slice(0,4))!==y)return;
+      rangeD(lr.from,lr.to).forEach(function(ds){
+        if(ds.slice(0,4)!==String(y))return;
+        var mm=parseInt(ds.slice(5,7))-1;
+        if(shiftFor(emp.gi,doy(parseDs(ds)))!=='off'){mt[mm]++;gt++;}
+      });
+    });
+    var bg=ri%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'>";
+    html+="<td style='"+td+"font-weight:bold;'>"+emp.name+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+emp.group+"</td>";
+    mt.forEach(function(v){ html+="<td style='"+td+"text-align:center;"+(v>0?"background:#DCFCE7;color:#065F46;font-weight:bold;":"color:#CBD5E1;")+"'>"+(v>0?v+"d":"—")+"</td>"; });
+    html+="<td style='"+td+"text-align:center;font-weight:bold;color:#065F46;background:#DCFCE7;'>"+(gt>0?gt+"d":"—")+"</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+
+  // ── Section 3: Balance Summary ───────────────────────────────────────────
+  html += "<h3 style='font-size:10pt;color:#7C3AED;margin-bottom:6px;border-bottom:2px solid #7C3AED;padding-bottom:3px;'>3. Balance Summary</h3>";
+  html += "<table style='width:100%;border-collapse:collapse;'>";
+  html += "<thead><tr style='background:#7C3AED;color:white;'>";
+  ["Employee","Grp","Role","AL Used","AL Left","AL Quota","C-OFF Used","C-OFF Left","C-OFF Quota","Status"].forEach(function(h){
+    html+="<th style='"+td+"color:white;text-align:center;font-weight:bold;'>"+h+"</th>";
+  });
+  html+="</tr></thead><tbody>";
+
+  allE.forEach(function(emp,ri){
+    var empAlQuota=getEmpAlQuota(emp.id);
+    var alUsed=0;
+    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='annual')return;if(parseInt(lr.from.slice(0,4))!==y)return;rangeD(lr.from,lr.to).forEach(function(ds){if(shiftFor(emp.gi,doy(parseDs(ds)))!=='off')alUsed++;});});
+    var alLeft=empAlQuota-alUsed;
+    var coffFromH=0,coffUsed=0;
+    var coffManual=(STATE.leaveBalance&&STATE.leaveBalance[emp.id]&&STATE.leaveBalance[emp.id].coffBonus)||0;
+    if(STATE.holidays){STATE.holidays.forEach(function(h){rangeD(h.from,h.to).forEach(function(hds){var heff=getEmpEffectiveShift(emp,hds,doy(parseDs(hds)));var hlt=lmapGet(lmap_a,emp.id,hds);if(hlt&&COMP_TYPES_A.indexOf(hlt)>=0)coffFromH++;else if(hlt==="overtime")coffFromH++;else if(heff==="off"&&!hlt)coffFromH++;});});}
+    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='coff')return;if(parseInt(lr.from.slice(0,4))!==y)return;rangeD(lr.from,lr.to).forEach(function(ds){if(shiftFor(emp.gi,doy(parseDs(ds)))!=='off')coffUsed++;});});
+    var coffTotal=coffFromH+coffManual, coffLeft=coffTotal-coffUsed;
+    var status="✅ OK",statusBg="#FFFFFF";
+    if(alLeft<0){status="🔴 AL Over ("+alLeft+"d)";statusBg="#FEE2E2";}
+    else if(coffLeft<0){status="🔴 C-OFF Over";statusBg="#FEE2E2";}
+    else if(alLeft<=3&&alUsed>0){status="⚠️ Low AL ("+alLeft+"d)";statusBg="#FEF3C7";}
+    var rc=getR(getEmpRoleAtMonth(emp,y,STATE.month));
+    var bg=ri%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'>";
+    html+="<td style='"+td+"font-weight:bold;'>"+emp.name+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+emp.group+"</td>";
+    html+="<td style='"+td+"text-align:center;background:"+rc.cl+"22;color:"+rc.cl+";font-weight:bold;'>"+getRTitle(rc.sh)+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+alUsed+"d</td>";
+    html+="<td style='"+td+"text-align:center;font-weight:bold;color:"+(alLeft<0?"#EF4444":alLeft<=3?"#F59E0B":"#065F46")+"'>"+alLeft+"d</td>";
+    html+="<td style='"+td+"text-align:center;'>"+empAlQuota+"d</td>";
+    html+="<td style='"+td+"text-align:center;'>"+coffUsed+"d</td>";
+    html+="<td style='"+td+"text-align:center;font-weight:bold;color:"+(coffLeft<0?"#EF4444":coffLeft>0?"#0E7490":"#94A3B8")+";'>"+(coffTotal>0?coffLeft+"d":"—")+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+coffTotal+"d</td>";
+    html+="<td style='"+td+"text-align:center;background:"+statusBg+";font-size:7pt;font-weight:bold;'>"+status+"</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+  html+="<p style='margin-top:10px;font-size:7pt;color:#94A3B8;'>Shift Schedule System — "+y+" Annual Report</p>";
+  html+="</body></html>";
+  var w=window.open("","_blank","width=1200,height=800");
+  if(w){w.document.write(html);w.document.close();}
+}
+
+// ── Print Leave Status ────────────────────────────────────────────────────
+function doPrintLeaveStatus() {
+  var y2=STATE.year, m2=STATE.month;
+  var allE=[]; for(var k in STATE.emps)if(STATE.emps[k].group!=="G")allE.push(STATE.emps[k]);
+  allE.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
+  var COMP_TYPES_P=["annual","coff","paternal"];
+  var lmap_p=STATE.covData?STATE.covData.lmap:buildLmap(STATE.lreqs);
+  var td="border:1px solid #CBD5E1;padding:5px 7px;font-size:8pt;";
+  var html="<!DOCTYPE html><html><head><meta charset='UTF-8'/><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial;padding:12px;}@page{size:A4 landscape;margin:10mm;}td,th{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@media print{.np{display:none!important;}}</style></head><body>";
+  html+="<div class='np' style='margin-bottom:10px;display:flex;gap:8px;'><button onclick='window.print()' style='background:#1E3A8A;color:white;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;'>🖨️ Print</button><button onclick='window.close()' style='background:#EF4444;color:white;border:none;padding:6px 14px;border-radius:5px;cursor:pointer;'>✕</button></div>";
+  html+="<h2 style='font-size:13pt;margin-bottom:3px;'>Annual Leave Status — "+y2+"</h2>";
+  html+="<p style='font-size:9pt;color:#64748B;margin-bottom:10px;'>Generated: "+new Date().toLocaleDateString()+"</p>";
+  html+="<table style='width:100%;border-collapse:collapse;'><thead><tr style='background:#1E3A8A;color:white;'>";
+  ["#","Employee","Grp","Role","AL Used","AL Left","AL Quota","C-OFF Used","C-OFF Left","C-OFF Quota","OT/Month","Status"].forEach(function(h){html+="<th style='"+td+"color:white;text-align:center;font-weight:bold;'>"+h+"</th>";});
+  html+="</tr></thead><tbody>";
+  allE.forEach(function(emp,ri){
+    var empAlQuota=getEmpAlQuota(emp.id);
+    var alUsed=0;
+    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='annual')return;if(parseInt(lr.from.slice(0,4))!==y2)return;rangeD(lr.from,lr.to).forEach(function(ds){if(shiftFor(emp.gi,doy(parseDs(ds)))!=='off')alUsed++;});});
+    var alLeft=empAlQuota-alUsed;
+    var coffFromH=0,coffUsed=0;
+    var coffManual=(STATE.leaveBalance&&STATE.leaveBalance[emp.id]&&STATE.leaveBalance[emp.id].coffBonus)||0;
+    if(STATE.holidays){STATE.holidays.forEach(function(h){rangeD(h.from,h.to).forEach(function(hds){var heff=getEmpEffectiveShift(emp,hds,doy(parseDs(hds)));var hlt=lmapGet(lmap_p,emp.id,hds);if(hlt&&COMP_TYPES_P.indexOf(hlt)>=0)coffFromH++;else if(hlt==="overtime")coffFromH++;else if(heff==="off"&&!hlt)coffFromH++;});});}
+    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='coff')return;if(parseInt(lr.from.slice(0,4))!==y2)return;rangeD(lr.from,lr.to).forEach(function(ds){if(shiftFor(emp.gi,doy(parseDs(ds)))!=='off')coffUsed++;});});
+    var coffTotal=coffFromH+coffManual, coffLeft=coffTotal-coffUsed;
+    var otM=0;
+    if(STATE.covData&&STATE.covData.cov){var pfx=String(y2)+"-"+(m2+1<10?"0":"")+(m2+1);for(var ds2 in STATE.covData.cov){if(ds2.slice(0,7)!==pfx)continue;(STATE.covData.cov[ds2].issues||[]).forEach(function(i){if(i.type==="cover"&&i.emp&&i.emp.id===emp.id&&!i.internal)otM++;});}}
+    var status="✅ OK",statusBg="#FFFFFF";
+    if(alLeft<0){status="🔴 AL Over ("+alLeft+"d)";statusBg="#FEE2E2";}
+    else if(coffLeft<0){status="🔴 C-OFF Over";statusBg="#FEE2E2";}
+    else if(alLeft<=3&&alUsed>0){status="⚠️ Low AL ("+alLeft+"d)";statusBg="#FEF3C7";}
+    else if(otM>=6){status="🔴 OT Full";statusBg="#FEE2E2";}
+    var rc=getR(getEmpRoleAtMonth(emp,y2,m2));
+    var bg=ri%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'><td style='"+td+"text-align:center;color:#94A3B8;'>"+(ri+1)+"</td><td style='"+td+"font-weight:bold;'>"+emp.name+"</td><td style='"+td+"text-align:center;'>"+emp.group+"</td><td style='"+td+"text-align:center;background:"+rc.cl+"22;color:"+rc.cl+";font-weight:bold;'>"+getRTitle(rc.sh)+"</td><td style='"+td+"text-align:center;'>"+alUsed+"d</td><td style='"+td+"text-align:center;font-weight:bold;color:"+(alLeft<0?"#EF4444":alLeft<=3?"#F59E0B":"#065F46")+"'>"+alLeft+"d</td><td style='"+td+"text-align:center;'>"+empAlQuota+"d</td><td style='"+td+"text-align:center;'>"+coffUsed+"d</td><td style='"+td+"text-align:center;font-weight:bold;color:"+(coffLeft<0?"#EF4444":coffLeft>0?"#0E7490":"#94A3B8")+";'>"+(coffTotal>0?coffLeft+"d":"—")+"</td><td style='"+td+"text-align:center;'>"+coffTotal+"d</td><td style='"+td+"text-align:center;font-weight:bold;color:"+(otM>=6?"#EF4444":otM>=4?"#F59E0B":"#1E3A8A")+"'>"+otM+"/6</td><td style='"+td+"text-align:center;background:"+statusBg+";font-size:7pt;'>"+status+"</td></tr>";
+  });
+  html+="</tbody></table></body></html>";
+  var w=window.open("","_blank","width=1100,height=700");if(w){w.document.write(html);w.document.close();}
+}
+
+// ── Print Leave Distribution ──────────────────────────────────────────────
+function doPrintLeaveDistribution() {
+  var y2=STATE.year, m2=STATE.month;
+  var allE=[]; for(var k in STATE.emps)if(STATE.emps[k].group!=="G")allE.push(STATE.emps[k]);
+  allE.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
+  // Fixed ordered months array — always 0=Jan to 11=Dec
+  var MONTHS_AR=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var td="border:1px solid #CBD5E1;padding:3px 2px;font-size:6.5pt;text-align:center;";
+  var html="<!DOCTYPE html><html><head><meta charset='UTF-8'/><style>"
+    +"*{margin:0;padding:0;box-sizing:border-box;}"
+    +"body{font-family:Arial;padding:8px;background:white;font-size:7pt;}"
+    +"@page{size:A4 landscape;margin:6mm;}"
+    +"td,th{-webkit-print-color-adjust:exact;print-color-adjust:exact;}"
+    +"table{table-layout:fixed;width:100%;border-collapse:collapse;}"
+    +"td,th{overflow:hidden;white-space:nowrap;}"
+    +"@media print{.np{display:none!important;}}"
+    +"</style></head><body>";
+  html+="<div class='np' style='margin-bottom:8px;display:flex;gap:8px;'>"
+    +"<button onclick='window.print()' style='background:#1E3A8A;color:white;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;'>🖨️ Print</button>"
+    +"<button onclick='window.close()' style='background:#EF4444;color:white;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;'>✕</button></div>";
+  html+="<h2 style='font-size:11pt;margin-bottom:2px;'>Leave Distribution — "+y2+" (AL & C-OFF)</h2>";
+  html+="<p style='font-size:7pt;color:#64748B;margin-bottom:6px;'>Working days of Annual Leave and Compensatory Off per month</p>";
+
+  html+="<table><colgroup>"
+    +"<col style='width:110px'/>"   // Employee
+    +"<col style='width:28px'/>"    // Grp
+    +"<col style='width:26px'/>"    // Role
+    +"<col style='width:26px'/><col style='width:26px'/><col style='width:26px'/>"
+    +"<col style='width:26px'/><col style='width:26px'/><col style='width:26px'/>"
+    +"<col style='width:26px'/><col style='width:26px'/><col style='width:26px'/>"
+    +"<col style='width:26px'/><col style='width:26px'/><col style='width:26px'/>"
+    +"<col style='width:32px'/>"    // Total
+    +"</colgroup>";
+
+  html+="<thead><tr style='background:#1E3A8A;color:white;'>";
+  html+="<th style='"+td+"text-align:left;padding-left:4px;font-size:7pt;'>Employee</th>";
+  html+="<th style='"+td+"font-size:6.5pt;'>Grp</th>";
+  html+="<th style='"+td+"font-size:6.5pt;'>Role</th>";
+  // All 12 months in fixed order
+  for(var mi=0;mi<12;mi++){
+    var isCur=(mi===m2);
+    html+="<th style='"+td+"font-size:6pt;background:"+(isCur?"#2563EB":"transparent")+";color:white;font-weight:"+(isCur?"bold":"normal")+";'>"+MONTHS_AR[mi]+"</th>";
+  }
+  html+="<th style='"+td+"font-size:6.5pt;background:#0F172A;'>Total</th>";
+  html+="</tr></thead><tbody>";
+
+  allE.forEach(function(emp,ri){
+    // Build month totals array — index 0=Jan, 11=Dec
+    var mt=[0,0,0,0,0,0,0,0,0,0,0,0];
+    var gt=0;
+    STATE.lreqs.forEach(function(lr){
+      if(lr.empId!==emp.id||lr.status!=='approved')return;
+      if(lr.lt!=='annual'&&lr.lt!=='coff')return;
+      if(parseInt(lr.from.slice(0,4))!==y2)return;
+      rangeD(lr.from,lr.to).forEach(function(ds){
+        if(ds.slice(0,4)!==String(y2))return;
+        var mm=parseInt(ds.slice(5,7))-1; // 0=Jan
+        if(mm<0||mm>11)return;
+        var dv_d=doy(parseDs(ds));
+        if(shiftFor(emp.gi,dv_d)!=='off'){mt[mm]++;gt++;}
+      });
+    });
+    var rc=getR(getEmpRoleAtMonth(emp,y2,STATE.month));
+    var bg=ri%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'>";
+    html+="<td style='"+td+"text-align:left;padding-left:4px;font-weight:bold;font-size:6.5pt;'>"+emp.name+"</td>";
+    html+="<td style='"+td+"font-size:6pt;'>"+emp.group+"</td>";
+    html+="<td style='"+td+"background:"+rc.cl+"22;color:"+rc.cl+";font-weight:bold;font-size:6pt;'>"+getRTitle(rc.sh)+"</td>";
+    // All 12 months in order
+    for(var mi2=0;mi2<12;mi2++){
+      var v=mt[mi2];
+      var isCur2=(mi2===m2);
+      html+="<td style='"+td+(v>0?";background:#FEF3C7;color:#92400E;font-weight:bold":";color:#CBD5E1")+(isCur2?";border:1.5px solid #2563EB;":"")+";'>"+(v>0?v+"d":"—")+"</td>";
+    }
+    html+="<td style='"+td+"font-weight:bold;color:"+(gt>0?"#1E3A8A":"#CBD5E1")+";background:"+(gt>0?"#EFF6FF":"transparent")+"'>"+(gt>0?gt+"d":"—")+"</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+  html+="<p style='margin-top:6px;font-size:6pt;color:#94A3B8;'>Generated: "+new Date().toLocaleDateString()+" | AL & C-OFF only | Current month highlighted in blue</p>";
+  html+="</body></html>";
+  var w=window.open("","_blank","width=1200,height=750");
+  if(w){w.document.write(html);w.document.close();}
+}
+
 // ── Print Custom Groups Stats ────────────────────────────────
 function doPrintGroups() {
   if (!STATE.customGroups) { showNotif("No groups configured yet", true); return; }
@@ -5119,6 +5464,8 @@ function renderAnnualPlan() {
     mkBtn("›","#1E293B",function(){STATE.planYear=(planYear+1);render();},"border:1px solid #334155;color:#F1F5F9;border-radius:6px;padding:5px 9px;font-size:14px;")
   );
   ap(hd, titleDiv, yearRow);
+  // Print button
+  hd.appendChild(mkBtn("🖨️ Print Annual Totals","#1E3A8A",function(){doPrintAnnualTotals(planYear);},"border-radius:7px;font-size:11px;padding:7px 14px;"));
   wrap.appendChild(hd);
 
   // ── Summary grid — 12 months × employees ──
