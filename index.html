@@ -2,8 +2,38 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
 <title>Shift Schedule</title>
+
+<!-- PWA -->
+<meta name="application-name" content="Shift Schedule"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Shift"/>
+<meta name="theme-color" content="#0F172A"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+
+<!-- PWA Manifest (inline as data URI to keep single file) -->
+<link rel="manifest" href="data:application/manifest+json,{
+  %22name%22:%22Shift Schedule%22,
+  %22short_name%22:%22Shift%22,
+  %22description%22:%22Shift Schedule Management System%22,
+  %22start_url%22:%22.%22,
+  %22display%22:%22standalone%22,
+  %22background_color%22:%22%230F172A%22,
+  %22theme_color%22:%22%230F172A%22,
+  %22orientation%22:%22any%22,
+  %22icons%22:[{
+    %22src%22:%22data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='32' fill='%230F172A'/%3E%3Ctext x='96' y='130' font-size='100' text-anchor='middle' fill='%233B82F6'%3E📅%3C/text%3E%3C/svg%3E%22,
+    %22sizes%22:%22192x192%22,
+    %22type%22:%22image/svg+xml%22,
+    %22purpose%22:%22any maskable%22
+  }]
+}"/>
+
+<!-- Apple Touch Icon (inline SVG) -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230F172A'/><text x='90' y='125' font-size='90' text-anchor='middle' fill='%233B82F6'>📅</text></svg>"/>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230F172A'/><text x='16' y='24' font-size='20' text-anchor='middle' fill='%233B82F6'>📅</text></svg>"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{
@@ -415,7 +445,10 @@ function getRolesEmpCountsToward(emp, ds) {
 
 function getEmpEffectiveShift(emp, ds, dv) {
   var ovr = STATE.shiftOverride && STATE.shiftOverride[emp.id] && STATE.shiftOverride[emp.id][ds];
-  if (ovr) return ovr;
+  if (ovr) {
+    if (ovr === "general") return getGeneralShift(ds); // G override → weekday schedule
+    return ovr;
+  }
   // General group (G) or gi=-1: use weekday-based schedule
   if (emp.group === "G" || emp.gi < 0) return getGeneralShift(ds);
   var tr = STATE.transferLog && STATE.transferLog[emp.id];
@@ -735,8 +768,10 @@ function computeCov(emps, lreqs, y, m) {
       }
       if (lmapGet(lmap, emp.id, ds)) continue;
       if (crossShiftExcluded && crossShiftExcluded[emp.id]) continue;
-      // Exclude General group (G) — permanent or temporary transfer to G
+      // Exclude General group (G) — permanent, temporary transfer, or daily G override
       if (emp.group === "G") continue;
+      var ovr_chk = STATE.shiftOverride && STATE.shiftOverride[emp.id] && STATE.shiftOverride[emp.id][ds];
+      if (ovr_chk === "general") continue; // G override today — slot vacant, OT search runs
       var tr_check = STATE.transferLog && STATE.transferLog[emp.id];
       if (tr_check && tr_check.startDate && ds >= tr_check.startDate &&
           !(tr_check.endDate && ds > tr_check.endDate) &&
@@ -1026,11 +1061,17 @@ function computeCov(emps, lreqs, y, m) {
           for (var ci2 = 0; ci2 < all.length; ci2++) {
             var ec = all[ci2];
             if (usedCover[ec.id]) continue;
-            if (ec.group === "G") continue; // General staff not eligible for OT cover
-            // Also exclude if temporarily transferred to G
+            // General staff (G) CAN be OT candidates on their working days (Sun-Thu)
+            // but NOT on their off days (Fri-Sat) and NOT if they're already excluded
             var tr_ec = STATE.transferLog && STATE.transferLog[ec.id];
             if (tr_ec && tr_ec.startDate && ds >= tr_ec.startDate &&
                 !(tr_ec.endDate && ds > tr_ec.endDate) && tr_ec.newGi < 0) continue;
+            // For permanent G employees: only available on working days (not Fri/Sat)
+            if (ec.group === "G") {
+              var dow_ec = parseDs(ds).getDay();
+              if (dow_ec === 5 || dow_ec === 6) continue; // Fri/Sat = off
+              // G employees can cover any shift role they qualify for
+            }
             if (compatForSearch.indexOf(getEmpRoleAtMonth(ec, y, m)) < 0) continue;
             if (getEmpEffectiveShift(ec, ds, dv) !== "off") continue;
             if (lmapGet(lmap, ec.id, ds)) continue;
@@ -1556,6 +1597,18 @@ function renderApp() {
     toggleBtn = mkBtn("🔑 Login","#172554",function(){requireAdmin(function(){render();});},"border:1px solid #3B82F644;color:#93C5FD;border-radius:7px;padding:5px 10px;font-size:11px;");
   }
   ap(hright, themeBtn, adminBadge, toggleBtn);
+  // PWA install button — hidden until browser fires beforeinstallprompt
+  var pwaBtn = document.createElement("button");
+  pwaBtn.id = "pwa-install-btn";
+  pwaBtn.style.cssText = "display:none;align-items:center;gap:5px;background:#1E3A8A;border:1px solid #3B82F6;color:#93C5FD;border-radius:7px;padding:4px 10px;font-size:11px;cursor:pointer;font-family:inherit;";
+  pwaBtn.innerHTML = "📲 Install App";
+  pwaBtn.onclick = function(){
+    if(_pwaPrompt){_pwaPrompt.prompt();_pwaPrompt.userChoice.then(function(){_pwaPrompt=null;});}
+    else{
+      showNotif("On iPhone: tap Share → Add to Home Screen");
+    }
+  };
+  hright.appendChild(pwaBtn);
   ap(htop, htitle, hright);
 
   // Tabs — viewer can only see Coverage, Stats, Export
@@ -2458,17 +2511,28 @@ function openShiftPicker(emp, ds, origShift, curShift) {
   ap(box, mkEl("div","font-size:11px;color:#64748B;margin-bottom:3px;","Change shift for:"));
   ap(box, mkEl("div","font-size:14px;font-weight:800;color:#F8FAFC;margin-bottom:12px;",emp.name+" — "+fmtD(ds)));
   var opts = [
-    {k:"morning",ic:"☀️",lb:"Morning","time":"07:00–14:00"},
-    {k:"evening",ic:"🌆",lb:"Evening","time":"14:00–22:00"},
-    {k:"night",  ic:"🌙",lb:"Night",  "time":"22:00–07:00"},
-    {k:"off",    ic:"🏠",lb:"Off",    "time":"—"}
+    {k:"morning",ic:"☀️",lb:"Morning",  time:"07:00–14:00"},
+    {k:"evening",ic:"🌆",lb:"Evening",  time:"14:00–22:00"},
+    {k:"night",  ic:"🌙",lb:"Night",    time:"22:00–07:00"},
+    {k:"off",    ic:"🏠",lb:"Off",      time:"—"},
+    {k:"general",ic:"G", lb:"General",  time:"Sun–Thu Morning (G schedule)"}
   ];
   for (var oi = 0; oi < opts.length; oi++) {
     (function(opt) {
       var isCur = curShift === opt.k;
+      var isG   = opt.k === "general";
       var ob = document.createElement("button");
-      ob.style.cssText = "width:100%;display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;margin-bottom:6px;cursor:pointer;font-family:inherit;border:2px solid "+(isCur?"#3B82F6":(SC[opt.k]||SC.off).tx+"33")+";background:"+(isCur?"#1D4ED8":(SC[opt.k]||SC.off).bg+"33")+";color:"+(isCur?"white":(SC[opt.k]||SC.off).tx)+";";
-      ap(ob, mkEl("span","font-size:18px;",opt.ic));
+      ob.style.cssText = "width:100%;display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;margin-bottom:6px;cursor:pointer;font-family:inherit;border:2px solid "
+        +(isCur?"#3B82F6":isG?"#64748B":(SC[opt.k]||SC.off).tx+"33")
+        +";background:"+(isCur?"#1D4ED8":isG?"#47556933":(SC[opt.k]||SC.off).bg+"33")
+        +";color:"+(isCur?"white":isG?"#94A3B8":(SC[opt.k]||SC.off).tx)+";";
+      // G icon is a badge
+      if (isG) {
+        var gBadge=mkEl("div","width:24px;height:24px;background:#64748B;border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:white;flex-shrink:0;","G");
+        ob.appendChild(gBadge);
+      } else {
+        ap(ob, mkEl("span","font-size:18px;",opt.ic));
+      }
       var info = mkEl("div","flex:1;text-align:right;");
       ap(info, mkEl("div","font-size:12px;font-weight:700;",opt.lb));
       ap(info, mkEl("div","font-size:10px;opacity:.7;",opt.time));
@@ -2476,19 +2540,22 @@ function openShiftPicker(emp, ds, origShift, curShift) {
       if (isCur) ob.appendChild(mkEl("span","font-size:14px;font-weight:800;","✓"));
       ob.onclick = function() {
         if (opt.k === origShift) {
+          // Revert to original
           if (STATE.shiftOverride[emp.id]) delete STATE.shiftOverride[emp.id][ds];
         } else {
           if (!STATE.shiftOverride[emp.id]) STATE.shiftOverride[emp.id] = {};
-          STATE.shiftOverride[emp.id][ds] = opt.k;
+          STATE.shiftOverride[emp.id][ds] = opt.k; // "general" stored as override
         }
         sLS("sc6_shiftoverride", STATE.shiftOverride);
         STATE.covData = computeCov(STATE.emps, STATE.lreqs, STATE.year, STATE.month);
-        showNotif("✅ " + emp.name + ": " + (SC[opt.k]||SC.off).lb);
+        var lbl = isG ? "G (General)" : (SC[opt.k]||SC.off).lb;
+        showNotif("✅ " + emp.name + ": " + lbl);
         o.remove(); render();
       };
       box.appendChild(ob);
     })(opts[oi]);
   }
+  box.appendChild(mkEl("div","font-size:9px;color:#64748B;margin-bottom:8px;","G: slot becomes vacant → OT search triggered · employee counted in General headcount"));
   box.appendChild(mkBtn("Cancel","#374151",function(){o.remove();},"width:100%;border-radius:8px;padding:9px;font-size:12px;margin-top:2px;"));
   o.appendChild(box); document.body.appendChild(o);
   o.onclick = function(e) { if (e.target === o) o.remove(); };
@@ -2745,6 +2812,14 @@ function renderLeaves() {
       editBtn2.textContent = "✏️";
       editBtn2.onclick = function(){requireAdmin(function(){openEditLeaveModal(req2);});};
       ab2.appendChild(editBtn2);
+      // Manual cover assignment button — only for approved leaves
+      if (req2.status === "approved") {
+        var assignBtn = document.createElement("button");
+        assignBtn.style.cssText = "background:#1E3A8A22;border:1px solid #3B82F666;color:#93C5FD;border-radius:5px;padding:4px 8px;font-size:10px;cursor:pointer;font-family:inherit;";
+        assignBtn.textContent = "👤 Cover";
+        assignBtn.onclick = function(){requireAdmin(function(){openManualCoverModal(req2);});};
+        ab2.appendChild(assignBtn);
+      }
       var delBtn = document.createElement("button");
       delBtn.style.cssText = "background:#111827;border:1px solid #334155;color:#EF4444;border-radius:5px;padding:4px 8px;font-size:10px;cursor:pointer;font-family:inherit;";
       delBtn.textContent = "🗑️";
@@ -2930,6 +3005,28 @@ function renderStaff() {
             if (apprCnt2 > 0) eRow2.appendChild(mkChip("✅"+apprCnt2,"#064E3B33","#34D399"));
             var tlog2 = STATE.transferLog && STATE.transferLog[emp6.id];
             if (tlog2 && tlog2.daysOwed > 0) eRow2.appendChild(mkChip("🔄 "+tlog2.daysOwed+" OFF","#78350F33","#FCD34D"));
+            // Cancel transfer button — shown if employee has an active transfer
+            if (tlog2 && tlog2.startDate) {
+              var cancelTrBtn = mkBtn("✕ Cancel Transfer","#7F1D1D22",function(){
+                requireAdmin(function(){
+                  if(!confirm("Cancel transfer for "+emp6.name+"? They will return to Group "+
+                    (tlog2.oldGi>=0?GR[tlog2.oldGi]:"original")+"."))return;
+                  // Restore original group/gi for permanent transfers
+                  if(!tlog2.endDate){
+                    STATE.emps[emp6.id].group = tlog2.oldGi>=0?GR[tlog2.oldGi]:emp6.group;
+                    STATE.emps[emp6.id].gi = tlog2.oldGi;
+                    sLS("sc6_emps",STATE.emps);
+                  }
+                  // Remove transfer log entry
+                  delete STATE.transferLog[emp6.id];
+                  sLS("sc6_transferlog",STATE.transferLog);
+                  STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
+                  showNotif("✅ Transfer cancelled for "+emp6.name);
+                  render();
+                });
+              },"border:1px solid #EF444466;color:#F87171;border-radius:5px;padding:3px 7px;font-size:9px;");
+              eRow2.appendChild(cancelTrBtn);
+            }
             var todayDs2 = mkDs(STATE.year, STATE.month, new Date().getDate());
             if (isMarkedExtra(emp6, todayDs2)) eRow2.appendChild(mkChip("➕ Extra now","#1D4ED833","#93C5FD"));
             if (STATE.transferMode) {
@@ -3090,6 +3187,189 @@ function renderStaff() {
 }
 
 // ── Transfer Date Picker ──────────────────────
+// ── Manual Cover Assignment from Leaves ──────────────────────────────────
+function openManualCoverModal(req) {
+  var old = document.getElementById("mc-ov"); if(old&&old.parentNode)old.parentNode.removeChild(old);
+  var emp = STATE.emps[req.empId];
+  if (!emp) { showNotif("Employee not found",true); return; }
+
+  var o = document.createElement("div");
+  o.id = "mc-ov";
+  o.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;";
+
+  var box = mkEl("div","background:#1E293B;border-radius:14px;padding:20px;width:92%;max-width:460px;border:1px solid #334155;max-height:90vh;overflow-y:auto;");
+
+  ap(box,
+    mkEl("div","font-size:11px;color:#64748B;margin-bottom:3px;","Manual Cover Assignment"),
+    mkEl("div","font-size:14px;font-weight:800;color:#F8FAFC;margin-bottom:2px;",emp.name+" — "+LC[req.lt]?LC[req.lt].lb:req.lt),
+    mkEl("div","font-size:11px;color:#94A3B8;margin-bottom:12px;",req.from+" → "+req.to+" ("+rangeD(req.from,req.to).length+" days)")
+  );
+
+  // Date selector for which day to assign cover
+  var dateRow = mkRow("gap:8px;align-items:center;margin-bottom:10px;");
+  dateRow.appendChild(mkEl("div","font-size:11px;color:#94A3B8;min-width:60px;","Date:"));
+  var dateSel = document.createElement("select");
+  dateSel.style.cssText = "flex:1;background:#0F172A;border:1px solid #334155;border-radius:7px;padding:6px 8px;color:#E2E8F0;font-size:11px;font-family:inherit;";
+  rangeD(req.from,req.to).forEach(function(ds){
+    var opt=document.createElement("option"); opt.value=ds; opt.textContent=ds; dateSel.appendChild(opt);
+  });
+  ap(dateRow, dateSel);
+  box.appendChild(dateRow);
+
+  // Shift selector
+  var shiftRow = mkRow("gap:8px;align-items:center;margin-bottom:10px;");
+  shiftRow.appendChild(mkEl("div","font-size:11px;color:#94A3B8;min-width:60px;","Shift:"));
+  var shiftSel = document.createElement("select");
+  shiftSel.style.cssText = "flex:1;background:#0F172A;border:1px solid #334155;border-radius:7px;padding:6px 8px;color:#E2E8F0;font-size:11px;font-family:inherit;";
+  [["morning","☀️ Morning"],["evening","🌆 Evening"],["night","🌙 Night"],["G","🏢 General (G)"]].forEach(function(s){
+    var opt=document.createElement("option"); opt.value=s[0]; opt.textContent=s[1]; shiftSel.appendChild(opt);
+  });
+  // Default to employee's natural shift on first day
+  var firstDv = doy(parseDs(req.from));
+  var natShift = getEmpEffectiveShift(emp, req.from, firstDv);
+  if(natShift!=="off") shiftSel.value = natShift;
+  ap(shiftRow, shiftSel);
+  box.appendChild(shiftRow);
+
+  // Leave type for cover employee
+  var ltRow = mkRow("gap:8px;align-items:center;margin-bottom:10px;");
+  ltRow.appendChild(mkEl("div","font-size:11px;color:#94A3B8;min-width:60px;","Type:"));
+  var ltSel = document.createElement("select");
+  ltSel.style.cssText = "flex:1;background:#0F172A;border:1px solid #334155;border-radius:7px;padding:6px 8px;color:#E2E8F0;font-size:11px;font-family:inherit;";
+  [
+    ["overtime","⏰ OT (Overtime)"],
+    ["annual","🏖️ AL (Annual Leave)"],
+    ["coff","🔄 C-OFF (Comp Off)"],
+    ["sick","🤒 SL (Sick Leave)"],
+    ["other","📋 OL (Other Leave)"]
+  ].forEach(function(lt){
+    var opt=document.createElement("option"); opt.value=lt[0]; opt.textContent=lt[1]; ltSel.appendChild(opt);
+  });
+  ap(ltRow, ltSel);
+  box.appendChild(ltRow);
+
+  // Cover employee selector — show all compatible employees on OFF day
+  var coverRow = mkRow("gap:8px;align-items:center;margin-bottom:6px;");
+  coverRow.appendChild(mkEl("div","font-size:11px;color:#94A3B8;min-width:60px;","Cover:"));
+  var coverSel = document.createElement("select");
+  coverSel.style.cssText = "flex:1;background:#0F172A;border:1px solid #334155;border-radius:7px;padding:6px 8px;color:#E2E8F0;font-size:11px;font-family:inherit;";
+
+  function rebuildCoverList() {
+    coverSel.innerHTML = "";
+    var ds_sel = dateSel.value;
+    var dv_sel = doy(parseDs(ds_sel));
+    var compat = compatRoles(emp.role);
+    var rotCands = [], gCands = [];
+
+    for(var k in STATE.emps){
+      var ce=STATE.emps[k];
+      if(ce.id===emp.id) continue;
+      if(compat.indexOf(getEmpRoleAtMonth(ce,STATE.year,STATE.month))<0) continue;
+      var clt=STATE.covData?lmapGet(STATE.covData.lmap,ce.id,ds_sel):null;
+      if(clt&&clt!=="overtime") continue; // on leave — skip
+
+      if(ce.group==="G"){
+        // G employees: show always, with their actual status (Morning / OFF)
+        var geff=getGeneralShift(ds_sel);
+        gCands.push({emp:ce, geff:geff});
+      } else {
+        // Rotation staff: only if on OFF day (available for OT)
+        var ceff=getEmpEffectiveShift(ce,ds_sel,dv_sel);
+        if(ceff!=="off") continue;
+        var otSoFar=(STATE.covData&&STATE.covData.wdMap)?STATE.covData.wdMap[ce.id]||0:0;
+        rotCands.push({emp:ce, otSoFar:otSoFar});
+      }
+    }
+    rotCands.sort(function(a,b){return a.otSoFar-b.otSoFar;});
+
+    if(rotCands.length===0 && gCands.length===0){
+      var opt=document.createElement("option"); opt.value=""; opt.textContent="— No candidates available —";
+      coverSel.appendChild(opt); return;
+    }
+
+    if(rotCands.length>0){
+      var grpR=document.createElement("option"); grpR.disabled=true;
+      grpR.textContent="── Rotation Staff (A-E) — on OFF day ──";
+      coverSel.appendChild(grpR);
+      rotCands.forEach(function(c){
+        var opt=document.createElement("option"); opt.value=c.emp.id;
+        opt.textContent=c.emp.name+" · "+getEmpRoleAtMonth(c.emp,STATE.year,STATE.month)+" · Grp "+c.emp.group+" · OT so far: "+c.otSoFar;
+        coverSel.appendChild(opt);
+      });
+    }
+
+    if(gCands.length>0){
+      var grpG=document.createElement("option"); grpG.disabled=true;
+      grpG.textContent="── General Staff (G) ──";
+      coverSel.appendChild(grpG);
+      gCands.forEach(function(c){
+        var opt=document.createElement("option"); opt.value=c.emp.id;
+        var statusIcon=c.geff==="morning"?"☀️ Morning (Working)":"🏠 OFF";
+        opt.textContent=c.emp.name+" · "+c.emp.role+" · G · "+statusIcon;
+        coverSel.appendChild(opt);
+      });
+    }
+  }
+  rebuildCoverList();
+  dateSel.onchange = rebuildCoverList;
+  ap(coverRow, coverSel);
+  box.appendChild(coverRow);
+
+  // Leave type for cover employee
+  var ltRow = mkRow("gap:8px;align-items:center;margin-bottom:6px;");
+  ltRow.appendChild(mkEl("div","font-size:11px;color:#94A3B8;min-width:60px;","Type:"));
+  var ltSel2 = document.createElement("select");
+  ltSel2.style.cssText = "flex:1;background:#0F172A;border:1px solid #334155;border-radius:7px;padding:6px 8px;color:#E2E8F0;font-size:11px;font-family:inherit;";
+  [
+    ["overtime","⏰ OT — Overtime (recommended)"],
+    ["annual","🏖️ AL — Annual Leave"],
+    ["coff","🔄 C-OFF — Compensatory Off"],
+    ["sick","🤒 SL — Sick Leave"],
+    ["other","📝 OL — Other Leave"]
+  ].forEach(function(opt){
+    var o2=document.createElement("option"); o2.value=opt[0]; o2.textContent=opt[1]; ltSel2.appendChild(o2);
+  });
+  ap(ltRow, ltSel2);
+  box.appendChild(ltRow);
+  box.appendChild(mkEl("div","font-size:9px;color:#64748B;margin-bottom:12px;","Sorted by least OT · [G] = General staff (available on weekdays)"));
+
+  // Confirm button
+  var btnRow_mc = mkRow("gap:8px;");
+  var confirmBtn = mkBtn("✅ Assign Cover","#10B981",function(){
+    requireAdmin(function(){
+      var covId=coverSel.value;
+      if(!covId){showNotif("Select a cover employee",true);return;}
+      var ds_a=dateSel.value, sh_a=shiftSel.value;
+      // Add leave request for the cover employee with selected type
+      STATE.lreqs.push({
+        id:"cov"+Date.now(),
+        empId:covId,
+        from:ds_a, to:ds_a,
+        lt:ltSel2.value,
+        status:"approved",
+        reason:"Manual cover for "+emp.name+" ("+req.lt+")",
+        requestedAt:new Date().toISOString()
+      });
+      // Assign to slot
+      var slotMap={"SCE":"SCE","CRE":"CRE","FE":"FE1"};
+      var slotId=slotMap[STATE.emps[covId].role]||"SCE";
+      var slotKey=ds_a+":"+sh_a+":"+slotId;
+      STATE.otAssign[slotKey]=covId;
+      sLS("sc6_lreqs",STATE.lreqs);
+      sLS("sc6_otassign",STATE.otAssign);
+      STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
+      showNotif("✅ "+STATE.emps[covId].name+" assigned as cover on "+ds_a);
+      o.parentNode.removeChild(o); render();
+    });
+  },"flex:1;border-radius:8px;padding:9px;font-size:12px;font-weight:700;");
+  var closeBtn_mc = mkBtn("Cancel","#374151",function(){o.parentNode.removeChild(o);},"border-radius:8px;padding:9px 13px;font-size:12px;color:#94A3B8;");
+  ap(btnRow_mc, confirmBtn, closeBtn_mc);
+  box.appendChild(btnRow_mc);
+  o.appendChild(box);
+  o.onclick=function(e){if(e.target===o)o.parentNode.removeChild(o);};
+  (document.body||document.documentElement).appendChild(o);
+}
+
 // ── Edit Existing Leave Dates ─────────────────
 function openEditLeaveModal(req) {
   var old = document.getElementById("el-ov"); if (old) old.remove();
@@ -3297,29 +3577,58 @@ function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
     set: function(v){isTempTransfer=v;}
   });
 
-  var infoBox2 = mkEl("div","background:#0F172A;border:1px solid #334155;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11px;color:#93C5FD;line-height:1.8;");
+  var infoBox2 = mkEl("div","background:#0F172A;border:1px solid #334155;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11px;color:#93C5FD;line-height:1.8;");
   infoBox2.textContent = "Select a date...";
   box.appendChild(infoBox2);
 
+  // ── Schedule preview table ─────────────────────────────────────────────
+  var previewTbl = mkEl("div","margin-bottom:12px;overflow-x:auto;");
+  box.appendChild(previewTbl);
+
   var oldGi = emp.gi; // current gi = old group before transfer
+
+  // Covering shift type (for G transfers — what shift was the employee covering?)
+  var coverShiftRow = mkEl("div","margin-bottom:10px;display:none;");
+  coverShiftRow.appendChild(mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:5px;","Covering shift type (OT compensation for):"));
+  var coverShiftBtns = mkRow("gap:6px;");
+  var selCoverShift = "morning"; // default
+  ["morning","evening","night"].forEach(function(sh){
+    var b=document.createElement("button");
+    b.textContent=(SC[sh]||{}).ic+" "+(SC[sh]||{}).lb||sh;
+    b.style.cssText="flex:1;padding:6px;border-radius:7px;font-size:11px;cursor:pointer;font-family:inherit;border:2px solid "+(sh==="morning"?"#7C3AED":"#334155")+";background:"+(sh==="morning"?"#7C3AED":"transparent")+";color:"+(sh==="morning"?"white":"#94A3B8")+";";
+    b.onclick=function(e){
+      e.preventDefault();
+      selCoverShift=sh;
+      coverShiftBtns.querySelectorAll&&Array.prototype.forEach.call(coverShiftBtns.children,function(btn,i){
+        var isMe=["morning","evening","night"][i]===sh;
+        btn.style.background=isMe?"#7C3AED":"transparent";
+        btn.style.borderColor=isMe?"#7C3AED":"#334155";
+        btn.style.color=isMe?"white":"#94A3B8";
+      });
+      recalc();
+    };
+    coverShiftBtns.appendChild(b);
+  });
+  coverShiftRow.appendChild(coverShiftBtns);
+  box.appendChild(coverShiftRow);
+
+  // Show cover shift row only when going to G
+  if (newGi < 0) coverShiftRow.style.display = "block";
 
   function recalc() {
     var sd = dateInp.value; if (!sd) return null;
     var y2=STATE.year, m2=STATE.month, dim2=daysInM(y2,m2);
     var lmap2 = buildLmap(STATE.lreqs);
     var workedOld = 0, workedNew = 0;
-    var schedulePreview = [];
     for (var d4 = 1; d4 <= dim2; d4++) {
       var ds4 = mkDs(y2,m2,d4);
       var dv4 = doy(new Date(y2,m2,d4));
       var lt4 = lmapGet(lmap2,eid,ds4);
       var isOnLeave = lt4 && lt4 !== "overtime";
       if (ds4 < sd) {
-        // Before transfer: use old group
         var sh4 = shiftFor(oldGi, dv4);
         if (sh4 !== "off" && !isOnLeave) workedOld++;
       } else {
-        // From transfer date: use new group (handle General gi=-1)
         var sh4b = (newGi < 0) ? getGeneralShift(ds4) : shiftFor(newGi, dv4);
         if (sh4b !== "off" && !isOnLeave) workedNew++;
       }
@@ -3328,18 +3637,61 @@ function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
     var owed = Math.max(0, total - MAX_WORK);
     var col = total > MAX_WORK ? "#F87171" : total === MAX_WORK ? "#FCD34D" : "#34D399";
 
-    var html2 = "<div style='margin-bottom:6px;font-weight:700;color:#60A5FA;'>📊 Working Days Calculation:</div>";
-    html2 += "<div>Before "+fmtD(sd)+" (Group "+fromGrp+"): <b style='color:#E2E8F0'>"+workedOld+" days</b></div>";
-    html2 += "<div>From "+fmtD(sd)+" (Group "+toGrp+"): <b style='color:#E2E8F0'>"+workedNew+" days</b></div>";
-    html2 += "<div>Total projected: <b style='color:"+col+"'>"+total+" / "+MAX_WORK+"</b></div>";
+    var html2 = "<div style='margin-bottom:5px;font-weight:700;color:#60A5FA;'>📊 Working Days:</div>";
+    html2 += "<div>Before "+fmtD(sd)+" (Grp "+fromGrp+"): <b style='color:#E2E8F0'>"+workedOld+"d</b> &nbsp; From "+fmtD(sd)+" (Grp "+toGrp+"): <b style='color:#E2E8F0'>"+workedNew+"d</b></div>";
+    html2 += "<div>Total: <b style='color:"+col+"'>"+total+" / "+MAX_WORK+"</b></div>";
     if (owed > 0) {
-      html2 += "<div style='margin-top:7px;padding:6px 9px;background:#064E3B33;border-radius:6px;border:1px solid #10B98144;'>";
-      html2 += "<b style='color:#34D399'>✅ "+owed+" compensatory OFF day"+(owed!==1?"s":"")+" will be granted (not C-OFF)</b><br>";
-      html2 += "<span style='color:#6EE7B7;font-size:10px;'>These days will appear as C-OFF in the schedule automatically</span></div>";
+      html2 += "<div style='margin-top:5px;padding:5px 8px;background:#064E3B33;border-radius:5px;border:1px solid #10B98144;'>";
+      html2 += "<b style='color:#34D399'>✅ "+owed+" compensatory OFF day"+(owed!==1?"s":"")+" granted</b></div>";
     } else {
-      html2 += "<div style='margin-top:6px;padding:5px 8px;background:#064E3B22;border-radius:6px;color:#6EE7B7;'>✅ No compensation needed</div>";
+      html2 += "<div style='margin-top:4px;padding:4px 8px;background:#064E3B22;border-radius:5px;color:#6EE7B7;font-size:10px;'>✅ No compensation needed</div>";
     }
     infoBox2.innerHTML = html2;
+
+    // ── Schedule preview table ───────────────────────────────────────
+    var tbl="<table style='width:100%;border-collapse:collapse;font-size:9px;'>";
+    tbl+="<thead><tr style='background:#1E3A8A;color:white;'>";
+    tbl+="<th style='padding:3px 4px;text-align:center;'>Day</th>";
+    tbl+="<th style='padding:3px 4px;text-align:center;'>Date</th>";
+    tbl+="<th style='padding:3px 4px;text-align:center;'>Before</th>";
+    tbl+="<th style='padding:3px 4px;text-align:center;'>After</th>";
+    if(newGi<0) tbl+="<th style='padding:3px 4px;text-align:center;'>Covering</th>";
+    tbl+="</tr></thead><tbody>";
+    var DAYS_SHORT=["Su","Mo","Tu","We","Th","Fr","Sa"];
+    for(var dp=1;dp<=dim2;dp++){
+      var dsp=mkDs(y2,m2,dp);
+      var dvp=doy(new Date(y2,m2,dp));
+      var dowp=new Date(y2,m2,dp).getDay();
+      var ltP=lmapGet(lmap2,eid,dsp);
+      var isAfter=(dsp>=sd);
+      // Before shift
+      var shBefore=shiftFor(oldGi,dvp);
+      var codeBefore=(SC[shBefore]||{}).code||"?";
+      var bgBefore=shBefore==="off"?"#F1F5F9":"#DBEAFE";
+      // After shift
+      var shAfter=isAfter?((newGi<0)?getGeneralShift(dsp):shiftFor(newGi,dvp)):shBefore;
+      var codeAfter=isAfter?(newGi<0?(shAfter==="off"?"OFF":"G"):(SC[shAfter]||{}).code||"?"):(SC[shAfter]||{}).code||"?";
+      var bgAfter=isAfter?(newGi<0?(shAfter==="off"?"#F1F5F9":"#E2E8F0"):(shAfter==="off"?"#F1F5F9":"#DCFCE7")):bgBefore;
+      var changed=isAfter&&(shBefore!==shAfter||(newGi<0&&shBefore!=="off"));
+      // Leave override
+      if(ltP){codeAfter=(LC[ltP]||{}).code||ltP;bgAfter="#FEF3C7";}
+      var rowBg=dp%2===0?"#0F172A":"#1E293B";
+      tbl+="<tr style='background:"+rowBg+";color:#E2E8F0;'>";
+      tbl+="<td style='padding:2px 4px;text-align:center;color:#64748B;'>"+DAYS_SHORT[dowp]+"</td>";
+      tbl+="<td style='padding:2px 4px;text-align:center;direction:ltr;'>"+(dsp===sd?"<b style='color:#A78BFA'>"+dp+"</b>":String(dp))+"</td>";
+      tbl+="<td style='padding:2px 4px;text-align:center;background:"+bgBefore+";color:#1E293B;font-weight:bold;'>"+codeBefore+"</td>";
+      tbl+="<td style='padding:2px 4px;text-align:center;background:"+bgAfter+";color:#1E293B;font-weight:"+(changed?"bold":"normal")+";'>"+codeAfter+"</td>";
+      if(newGi<0){
+        // Covering column: if after transfer date and employee was originally working that shift
+        var wasWorking=isAfter&&shBefore!=="off"&&!ltP;
+        var covCell=wasWorking?"<span style='background:#7C3AED;color:white;border-radius:3px;padding:1px 5px;font-weight:bold;'>"+(SC[selCoverShift]||{}).code||selCoverShift.slice(0,1).toUpperCase()+"</span>":"—";
+        tbl+="<td style='padding:2px 4px;text-align:center;color:#C4B5FD;'>"+covCell+"</td>";
+      }
+      tbl+="</tr>";
+    }
+    tbl+="</tbody></table>";
+    previewTbl.innerHTML=tbl;
+
     return {sd:sd, owed:owed, workedOld:workedOld, workedNew:workedNew, total:total};
   }
   dateInp.onchange = recalc; recalc();
@@ -5229,8 +5581,18 @@ function doPrint() {
           txColor3=OT_TX;   // amber text
         } else {
           var eff2=getEmpEffectiveShift(emp10,ds7,dv6);
-          code3=(SC[eff2]||SC.off).code;
-          bg3=SPBG[eff2]||"#E2E8F0";
+          var ovr_pr=STATE.shiftOverride&&STATE.shiftOverride[emp10.id]&&STATE.shiftOverride[emp10.id][ds7];
+          var tr_p=STATE.transferLog&&STATE.transferLog[emp10.id];
+          var inGThisDay=(ovr_pr==="general")||
+            (tr_p&&tr_p.newGi<0&&tr_p.startDate&&ds7>=tr_p.startDate&&!(tr_p.endDate&&ds7>tr_p.endDate));
+          if(inGThisDay && eff2==="morning"){
+            code3="G"; bg3="#E2E8F0"; txColor3="#475569";
+          } else if(inGThisDay && eff2==="off"){
+            code3="OFF"; bg3="#F1F5F9"; txColor3="#94A3B8";
+          } else {
+            code3=(SC[eff2]||SC.off).code;
+            bg3=SPBG[eff2]||"#E2E8F0";
+          }
         }
         html+="<td style='"+td+"background:"+bg3+";color:"+txColor3+"'>"+code3+"</td>";
       }
@@ -5246,13 +5608,21 @@ function doPrint() {
   // per-slot "tag", not by counting bodies.
   var countLabels=[["Morning","morning","#FFFFFF"],["Evening","evening","#FFFFFF"],["Night","night","#FFFFFF"],["Leave","leave","#FCD34D"],["OT","ot","#FFD700"]];
   // ── General Staff (G) in print ─────────────────────────────────────────
-  var printDs1=mkDs(y4,m4,1);
   var genEmps=[];
   for(var kg2 in emps){
     var ge_e=emps[kg2];
-    // Include permanently G AND temporarily transferred TO G this month
-    var ge_grp=getEmpGroupAtDate(ge_e,printDs1);
-    if(ge_grp==="G")genEmps.push(ge_e);
+    // Permanently in G
+    if(ge_e.group==="G"){genEmps.push(ge_e);continue;}
+    // Temporarily transferred to G during this month
+    var tr_ge=STATE.transferLog&&STATE.transferLog[ge_e.id];
+    if(tr_ge&&tr_ge.newGi<0&&tr_ge.startDate){
+      var trStart=tr_ge.startDate, trEnd=tr_ge.endDate;
+      var mStart=mkDs(y4,m4,1), mEnd=mkDs(y4,m4,dim4);
+      // Overlaps with this month
+      if(trStart<=mEnd&&(!trEnd||trEnd>=mStart)){
+        genEmps.push(ge_e);
+      }
+    }
   }
   genEmps.sort(function(a,b){return a.order-b.order;});
   if(genEmps.length>0){
@@ -5319,6 +5689,8 @@ function doPrint() {
         for(var k11 in emps){
           var e7=emps[k11];
           if(e7.group==="G")continue; // General not counted in rotation shifts
+          var ovr_hc=STATE.shiftOverride&&STATE.shiftOverride[e7.id]&&STATE.shiftOverride[e7.id][ds8];
+          if(ovr_hc==="general")continue; // G override — counted in General row instead
           var eff4=getEmpEffectiveShift(e7,ds8,dv8);
           if(eff4!==cl2[1])continue;
           var lt6=lmapGet(lmap5,e7.id,ds8);
@@ -5368,6 +5740,17 @@ function doPrint() {
         var ltG=lmapGet(lmap5,ge.id,dsG);
         if(effG!=="off"&&(!ltG||ltG==="overtime"))cntG++;
       });
+      // Also count rotation employees with G override today
+      for(var kgov in emps){
+        var eov=emps[kgov];
+        if(eov.group==="G")continue; // already counted above
+        var ovrG=STATE.shiftOverride&&STATE.shiftOverride[eov.id]&&STATE.shiftOverride[eov.id][dsG];
+        if(ovrG==="general"){
+          var effOv=getEmpEffectiveShift(eov,dsG,dvG);
+          var ltOv=lmapGet(lmap5,eov.id,dsG);
+          if(effOv!=="off"&&(!ltOv||ltOv==="overtime"))cntG++;
+        }
+      }
       var dw5=dowN(y4,m4,dg2);
       var isWeekend=(dw5===5||dw5===6);
       html+="<td style='"+td+"background:"+(isWeekend?"#F1F5F9":"#E2E8F0")+";color:"+(isWeekend?"#94A3B8":"#1E293B")+";font-weight:bold'>"+cntG+"</td>";
@@ -6229,6 +6612,47 @@ function init() {
   render();
 }
 init();
+
+// ── PWA Install ───────────────────────────────────────────────────────────
+var _pwaPrompt = null;
+window.addEventListener("beforeinstallprompt", function(e) {
+  e.preventDefault();
+  _pwaPrompt = e;
+  // Show install button in the app
+  var btn = document.getElementById("pwa-install-btn");
+  if (btn) btn.style.display = "flex";
+});
+
+window.addEventListener("appinstalled", function() {
+  _pwaPrompt = null;
+  var btn = document.getElementById("pwa-install-btn");
+  if (btn) btn.style.display = "none";
+  showNotif("✅ App installed successfully!");
+});
+
+// ── Service Worker (inline, cached offline) ───────────────────────────────
+if ("serviceWorker" in navigator) {
+  var swCode = [
+    "const CACHE = 'shift-v1';",
+    "self.addEventListener('install', e => {",
+    "  self.skipWaiting();",
+    "  e.waitUntil(caches.open(CACHE).then(c => c.add('.')));",
+    "});",
+    "self.addEventListener('activate', e => {",
+    "  e.waitUntil(clients.claim());",
+    "});",
+    "self.addEventListener('fetch', e => {",
+    "  if (e.request.method !== 'GET') return;",
+    "  e.respondWith(",
+    "    caches.match(e.request).then(r => r || fetch(e.request).then(nr => {",
+    "      return caches.open(CACHE).then(c => { c.put(e.request, nr.clone()); return nr; });",
+    "    })).catch(() => caches.match('.'))  );",
+    "});"
+  ].join("\n");
+  var swBlob = new Blob([swCode], {type: "application/javascript"});
+  var swUrl  = URL.createObjectURL(swBlob);
+  navigator.serviceWorker.register(swUrl).catch(function(){});
+}
 </script>
 </body>
 </html>
