@@ -735,7 +735,12 @@ function computeCov(emps, lreqs, y, m) {
       }
       if (lmapGet(lmap, emp.id, ds)) continue;
       if (crossShiftExcluded && crossShiftExcluded[emp.id]) continue;
-      if (emp.group === "G") continue; // General group not in rotation slots
+      // Exclude General group (G) — permanent or temporary transfer to G
+      if (emp.group === "G") continue;
+      var tr_check = STATE.transferLog && STATE.transferLog[emp.id];
+      if (tr_check && tr_check.startDate && ds >= tr_check.startDate &&
+          !(tr_check.endDate && ds > tr_check.endDate) &&
+          tr_check.newGi < 0) continue; // temporarily in G
       var empRoleThisMonth = getEmpRoleAtMonth(emp, y, m);
       if (inShift[base] && inShift[base][empRoleThisMonth]) inShift[base][empRoleThisMonth].push(emp);
     }
@@ -1022,6 +1027,10 @@ function computeCov(emps, lreqs, y, m) {
             var ec = all[ci2];
             if (usedCover[ec.id]) continue;
             if (ec.group === "G") continue; // General staff not eligible for OT cover
+            // Also exclude if temporarily transferred to G
+            var tr_ec = STATE.transferLog && STATE.transferLog[ec.id];
+            if (tr_ec && tr_ec.startDate && ds >= tr_ec.startDate &&
+                !(tr_ec.endDate && ds > tr_ec.endDate) && tr_ec.newGi < 0) continue;
             if (compatForSearch.indexOf(getEmpRoleAtMonth(ec, y, m)) < 0) continue;
             if (getEmpEffectiveShift(ec, ds, dv) !== "off") continue;
             if (lmapGet(lmap, ec.id, ds)) continue;
