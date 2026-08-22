@@ -4908,13 +4908,16 @@ function renderExcel() {
     mkEl("div","font-size:10px;color:#64748B;margin-bottom:10px;","Save to private GitHub Gist — no repo needed, no secret detection issues")
   );
   var ghCfg = STATE.rules && STATE.rules.githubCfg ? STATE.rules.githubCfg : {};
+  // Persistent keys — survive data import and page reload
+  var _ghTok  = localStorage.getItem("sc6_gh_token") || ghCfg.token  || "";
+  var _ghGist = localStorage.getItem("sc6_gh_gist")  || ghCfg.gistId || "";
   var ghTokenInp = document.createElement("input");
   ghTokenInp.type="password"; ghTokenInp.placeholder="GitHub Token (gist scope)";
-  ghTokenInp.value=ghCfg.token||"";
+  ghTokenInp.value=_ghTok;
   ghTokenInp.style.cssText="width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:6px;box-sizing:border-box;font-family:inherit;";
   var ghGistInp = document.createElement("input");
   ghGistInp.type="text"; ghGistInp.placeholder="Gist ID (auto-filled after first save)";
-  ghGistInp.value=ghCfg.gistId||"";
+  ghGistInp.value=_ghGist;
   ghGistInp.style.cssText="width:100%;background:#1E293B;border:1px solid #334155;border-radius:7px;padding:7px 10px;color:#E2E8F0;font-size:11px;margin-bottom:10px;box-sizing:border-box;font-family:inherit;";
   ap(ghCard,
     mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","🔑 GitHub Token (gist scope only):"),
@@ -4926,8 +4929,13 @@ function renderExcel() {
   ghCard.appendChild(ghStatus);
 
   function ghSaveCfg2(gid){
+    var tok=ghTokenInp.value.trim();
+    var gistId=gid||ghGistInp.value.trim();
+    // Save independently so they survive Import/reload
+    localStorage.setItem("sc6_gh_token", tok);
+    localStorage.setItem("sc6_gh_gist",  gistId);
     if(!STATE.rules)STATE.rules={};
-    STATE.rules.githubCfg={token:ghTokenInp.value.trim(),gistId:gid||ghGistInp.value.trim()};
+    STATE.rules.githubCfg={token:tok,gistId:gistId};
     sLS("sc6_rules",STATE.rules);
   }
 
@@ -4977,6 +4985,9 @@ function renderExcel() {
         var bd=bk.d||bk.data||bk;
         var cnt=0;
         for(var k in bd){if(k.indexOf("sc6_")===0){localStorage.setItem(k,bd[k]);cnt++;}}
+        // Preserve token and gist ID through the reload
+        localStorage.setItem("sc6_gh_token", ghTokenInp.value.trim());
+        localStorage.setItem("sc6_gh_gist",  ghGistInp.value.trim());
         ghStatus.style.color="#34D399";
         ghStatus.textContent="✅ Loaded "+cnt+" items — reloading...";
         setTimeout(function(){window.location.reload();},1200);
