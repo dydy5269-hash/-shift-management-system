@@ -64,6 +64,8 @@ body.light-mode [style*="border:1px solid #334155"]{border-color:var(--border) !
 body.light-mode [style*="border-bottom:1px solid #334155"]{border-color:var(--border) !important;}
 button{font-family:inherit;cursor:pointer;}
 input,select{font-family:inherit;font-size:12px;}
+/* Viewer mode — hide all admin action elements */
+body.viewer-mode .admin-only{display:none!important;}
 .inp{width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text-main);font-size:12px;direction:rtl;box-sizing:border-box;outline:none;}
 .inp:focus{border-color:var(--accent);}
 .lb-bar{height:6px;border-radius:3px;background:#334155;overflow:hidden;margin-top:2px;}
@@ -92,14 +94,15 @@ var SC = {
   off:     {bg:"#F1F5F9",tx:"#475569",lb:"Off",    ic:"🏠",code:"OFF"} // Grey
 };
 var LC = {
-  annual:   {bg:"#DCFCE7",tx:"#14532D",lb:"Annual Leave",    code:"AL",  pbg:"#86EFAC"}, // Green
-  sick:     {bg:"#FEE2E2",tx:"#7F1D1D",lb:"Sick Leave",      code:"SL",  pbg:"#FCA5A5"}, // Red
-  emergency:{bg:"#FFF7ED",tx:"#7C2D12",lb:"Emergency Leave", code:"EL",  pbg:"#FDBA74"}, // Orange
-  paternal: {bg:"#FCE7F3",tx:"#831843",lb:"Paternal Leave",  code:"PL",  pbg:"#F9A8D4"}, // Pink
-  coff:     {bg:"#E0F2FE",tx:"#0C4A6E",lb:"C-OFF",           code:"C-OFF",pbg:"#7DD3FC"}, // Sky Blue
-  training: {bg:"#ECFDF5",tx:"#065F46",lb:"Training",        code:"TL",  pbg:"#6EE7B7"}, // Teal
-  unpaid:   {bg:"#F5F5F4",tx:"#292524",lb:"Unpaid Leave",    code:"UL",  pbg:"#D6D3D1"}, // Stone
-  other:    {bg:"#FFF1F2",tx:"#881337",lb:"Other Leave",     code:"OL",  pbg:"#FDA4AF"}  // Rose (distinct from PL pink)
+  annual:   {bg:"#DCFCE7",tx:"#14532D",lb:"Annual Leave",      code:"AL",  pbg:"#86EFAC"}, // Green
+  sick:     {bg:"#FEE2E2",tx:"#7F1D1D",lb:"Sick Leave",        code:"SL",  pbg:"#FCA5A5"}, // Red
+  emergency:{bg:"#FFF7ED",tx:"#7C2D12",lb:"Emergency Leave",   code:"EL",  pbg:"#FDBA74"}, // Orange
+  paternal: {bg:"#FCE7F3",tx:"#831843",lb:"Paternal Leave",    code:"PL",  pbg:"#F9A8D4"}, // Pink
+  coff:     {bg:"#E0F2FE",tx:"#0C4A6E",lb:"C-OFF",             code:"C-OFF",pbg:"#7DD3FC"},// Sky Blue
+  training: {bg:"#ECFDF5",tx:"#065F46",lb:"Training",          code:"TL",  pbg:"#6EE7B7"}, // Teal
+  unpaid:   {bg:"#F5F5F4",tx:"#292524",lb:"Unpaid Leave",      code:"UL",  pbg:"#D6D3D1"}, // Stone
+  other:    {bg:"#FFF1F2",tx:"#881337",lb:"Other Leave",       code:"OL",  pbg:"#FDA4AF"}, // Rose
+  unplanned:{bg:"#FEF9C3",tx:"#713F12",lb:"Unplanned Leave",   code:"UP",  pbg:"#FDE047"}  // Amber — deducted from AL balance
 };
 var OT = {bg:"#FFD700",tx:"#000000",lb:"Overtime",code:"OT",pbg:"#FFD700"}; // Bright Yellow
 
@@ -503,6 +506,8 @@ var STATE = {
   theme: "dark",
   compareMonth: null,
   leaveBalance: {},
+  swapRequests: [],   // [{id,empA,empB,dsA,dsB,shiftA,shiftB,status,requestedAt}]
+  portalRequests: [], // [{id,empId,lt,from,to,reason,status,requestedAt}]
   compareMonth: null,
   // holidays: [{id, name, from, to}] — public holidays defined by admin
   holidays: [],
@@ -1557,6 +1562,11 @@ function renderApp() {
   var root = document.createElement("div");
   var th = TH();
   root.style.cssText = "background:"+th.bgMain+";min-height:100vh;color:"+th.txtMain+";";
+  // Apply viewer mode class to body
+  if (document.body) {
+    if (!STATE.isAdmin) document.body.classList.add("viewer-mode");
+    else document.body.classList.remove("viewer-mode");
+  }
 
   // Header
   var hdr = document.createElement("div");
@@ -1587,14 +1597,21 @@ function renderApp() {
     adminBadge.style.cssText = "background:"+roleBg+";border:1px solid "+roleBdr+";border-radius:8px;padding:4px 10px;font-size:11px;color:"+roleCl+";font-weight:700;";
     adminBadge.textContent = roleLbl+(STATE.currentUser?" · "+STATE.currentUser.name:"");
   } else {
-    adminBadge.style.cssText = "background:#1E293B;border:1px solid #334155;border-radius:8px;padding:4px 10px;font-size:11px;color:#94A3B8;";
-    adminBadge.textContent = "👁️ View Only";
+    adminBadge.style.cssText = "background:#1E293B;border:1px solid #334155;border-radius:8px;padding:4px 10px;font-size:11px;color:#64748B;";
+    adminBadge.textContent = "👁️ Read Only — login to manage";
   }
   var toggleBtn;
   if (STATE.isAdmin) {
-    toggleBtn = mkBtn("🔒 Exit","#7F1D1D22",function(){STATE.isAdmin=false;STATE.currentUser=null;render();},"border:1px solid #EF444466;color:#F87171;border-radius:7px;padding:5px 10px;font-size:11px;");
+    toggleBtn = mkBtn("🔒 Exit","#7F1D1D22",function(){
+      STATE.isAdmin=false;STATE.currentUser=null;
+      // If current tab is admin-only, switch to coverage
+      if(["staff","titles","rules","admins"].indexOf(STATE.tab)>=0) STATE.tab="cov";
+      render();
+    },"border:1px solid #EF444466;color:#F87171;border-radius:7px;padding:5px 10px;font-size:11px;");
   } else {
-    toggleBtn = mkBtn("🔑 Login","#172554",function(){requireAdmin(function(){render();});},"border:1px solid #3B82F644;color:#93C5FD;border-radius:7px;padding:5px 10px;font-size:11px;");
+    toggleBtn = mkBtn("🔑 Login","#1E3A8A",function(){
+      requireAdmin(function(){render();});
+    },"border:1px solid #3B82F6;color:#93C5FD;border-radius:7px;padding:5px 10px;font-size:11px;font-weight:600;");
   }
   ap(hright, themeBtn, adminBadge, toggleBtn);
   // PWA install button — hidden until browser fires beforeinstallprompt
@@ -1614,33 +1631,33 @@ function renderApp() {
   // Tabs — viewer can only see Coverage, Stats, Export
   // admin cannot see Admins tab
   var TABS = [
-    ["cov","🔍 Coverage", true],
-    ["leaves","📋 Leaves"+(pendCnt>0?" ("+pendCnt+")":""), can("canApproveLeave")||!STATE.isAdmin],
-    ["plan","📅 Annual Plan", true],
-    ["excel","📊 Export", true],
-    ["staff","👥 Staff", can("canManageStaff")||!STATE.isAdmin],
-    ["titles","🏷️ Roles", can("canManageRules")||!STATE.isAdmin],
-    ["rules","⚙️ Rules", can("canManageRules")||!STATE.isAdmin],
-    ["stats","📈 Stats", true],
-    ["holidays","🎌 Holidays", can("canManageRules")||!STATE.isAdmin],
-    ["admins","👑 Admins", can("canManageAdmins")||!STATE.isAdmin]
+    ["cov",     "🔍 Coverage", true],
+    ["leaves",  "📋 Leaves"+(pendCnt>0?" ("+pendCnt+")":""), true],
+    ["plan",    "📅 Annual Plan", true],
+    ["excel",   "📊 Export", true],
+    ["stats",   "📈 Stats", true],
+    ["holidays","🎌 Holidays", true],
+    ["swap",    "🔄 Swap", true],
+    ["portal",  "🙋 Portal", true],
+    // Admin-only tabs — only shown after login
+    ["staff",   "👥 Staff",  STATE.isAdmin],
+    ["titles",  "🏷️ Roles",  STATE.isAdmin],
+    ["rules",   "⚙️ Rules",  STATE.isAdmin],
+    ["admins",  "👑 Admins", STATE.isAdmin]
   ];
   var tabsRow = document.createElement("div");
   tabsRow.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;margin-top:10px;";
   for (var ti = 0; ti < TABS.length; ti++) {
     (function(tab) {
+      // If tab[2] is false → completely hidden (not greyed, not shown)
+      if (!tab[2]) return;
       var b = document.createElement("button");
       var active = STATE.tab === tab[0];
-      var locked = STATE.isAdmin && !tab[2]; // logged in but no permission
-      b.style.cssText = "padding:5px 10px;border-radius:6px;border:none;font-weight:700;font-size:11px;cursor:"+(locked?"not-allowed":"pointer")+";font-family:inherit;background:"+(active?"#3B82F6":locked?"#111827":"#1E293B")+";color:"+(active?"white":locked?"#374151":"#94A3B8")+";opacity:"+(locked?".5":"1")+";";
-      b.textContent = tab[1]+(locked?" 🔒":"");
-      b.onclick = function() {
-        if (locked) { showNotif("⛔ Your role ("+getMyRole()+") cannot access this section",true); return; }
-        STATE.tab = tab[0]; render();
-      };
+      b.style.cssText = "padding:5px 10px;border-radius:6px;border:none;font-weight:700;font-size:11px;cursor:pointer;font-family:inherit;background:"+(active?"#3B82F6":"#1E293B")+";color:"+(active?"white":"#94A3B8")+";";
+      b.textContent = tab[1];
+      b.onclick = function() { STATE.tab = tab[0]; render(); };
       tabsRow.appendChild(b);
     })(TABS[ti]);
-
   }
 
   // Stats bar
@@ -1679,7 +1696,9 @@ function renderApp() {
     else if (STATE.tab === "rules")  content = renderRules();
     else if (STATE.tab === "stats")  content = renderStats();
     else if (STATE.tab === "holidays") content = renderHolidays();
-    else if (STATE.tab === "admins") content = renderAdmins();
+    else if (STATE.tab === "swap")    content = renderSwap();
+    else if (STATE.tab === "portal")  content = renderPortal();
+    else if (STATE.tab === "admins")  content = renderAdmins();
     else content = mkEl("div","color:#64748B;padding:20px;","");
   } catch(err) {
     content = mkEl("div","background:#7F1D1D;border-radius:10px;padding:16px;color:#FCA5A5;","Error: " + err.message);
@@ -1734,6 +1753,7 @@ function renderCov() {
   var monthKey2 = y+"-"+m;
   var isMonthLocked = !!(STATE.lockedMonths && STATE.lockedMonths[monthKey2]);
   var lockBtn = document.createElement("button");
+  lockBtn.className = "admin-only";
   lockBtn.style.cssText = "background:"+(isMonthLocked?"#7F1D1D":"#1E3A5F")+";color:"+(isMonthLocked?"#FCA5A5":"#93C5FD")+";border:1px solid "+(isMonthLocked?"#EF4444":"#3B82F6")+";border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;";
   lockBtn.innerHTML = (isMonthLocked?"🔒 Locked — Click to Unlock":"🔓 Lock Month");
   lockBtn.title = isMonthLocked
@@ -2784,6 +2804,7 @@ function renderLeaves() {
       }
       function mkAct(txt,bg,bc,tx,newSt) {
         var b3 = document.createElement("button");
+        b3.className = "admin-only"; // hidden in viewer mode
         b3.style.cssText = "background:"+bg+";border:1px solid "+bc+";color:"+tx+";border-radius:5px;padding:4px 8px;font-size:10px;cursor:pointer;font-family:inherit;";
         b3.textContent = txt;
         b3.onclick = function(){requirePerm("canApproveLeave",function(){
@@ -2867,9 +2888,11 @@ function renderStaff() {
   ap(hdrLeft, prevMBtn, monthLbl, nextMBtn);
   hdr2.appendChild(hdrLeft);
 
-  hdr2.appendChild(mkBtn(STATE.transferMode?"✕ Cancel":"🔀 Transfer","#7C3AED33",function(){
+  var _transferBtn = mkBtn(STATE.transferMode?"✕ Cancel":"🔀 Transfer","#7C3AED33",function(){
     requirePerm("canTransfer",function(){STATE.transferMode=!STATE.transferMode;STATE.transferEmpId=null;render();});
-  },"border:1px solid #7C3AED66;color:#A78BFA;border-radius:7px;font-size:11px;"));
+  },"border:1px solid #7C3AED66;color:#A78BFA;border-radius:7px;font-size:11px;");
+  _transferBtn.className += " admin-only";
+  hdr2.appendChild(_transferBtn);
   wrap.appendChild(hdr2);
 
   if (STATE.transferMode) {
@@ -4008,6 +4031,12 @@ function renderStats() {
   var lmap3 = STATE.covData ? STATE.covData.lmap : buildLmap(STATE.lreqs);
   var wrap = document.createElement("div");
 
+  // Quick stats header with print button
+  var statsHdr=mkRow("justify-content:space-between;align-items:center;margin-bottom:10px;");
+  statsHdr.appendChild(mkEl("div","font-size:13px;font-weight:700;color:#F8FAFC;","📈 Statistics — "+y2));
+  statsHdr.appendChild(mkBtn("🖨️ Print Annual Stats","#7C3AED",function(){doPrintAnnualStats();},"border-radius:7px;font-size:11px;padding:6px 12px;"));
+  wrap.appendChild(statsHdr);
+
   // ── Leave Balance + OT Warning ────────────────────────────────────────────
   var AL_ANNUAL = (STATE.rules && STATE.rules.annualLeaveQuota) || 30;
   var balCard = mkCard("margin-bottom:10px;overflow:hidden;");
@@ -4387,12 +4416,13 @@ function renderStats() {
   // person used in total this year?" at a glance.
   (function() {
     var annYear = STATE.year;
-    var annHdr = mkRow("margin-top:18px;margin-bottom:11px;justify-content:space-between;");
+    var annHdr = mkRow("margin-top:18px;margin-bottom:11px;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;");
     ap(annHdr, mkEl("div","font-size:14px;font-weight:800;color:#1E293B;","📊 Annual Totals — "+annYear));
-    ap(annHdr,
-      mkBtn("‹","#F1F5F9",function(){STATE.year=annYear-1;render();},"border:1px solid #CBD5E1;color:#1E293B;border-radius:6px;padding:5px 9px;"),
-      mkBtn("›","#F1F5F9",function(){STATE.year=annYear+1;render();},"border:1px solid #CBD5E1;color:#1E293B;border-radius:6px;padding:5px 9px;")
-    );
+    var annBtns=mkRow("gap:6px;");
+    annBtns.appendChild(mkBtn("🖨️ Print","#1E3A8A",function(){doPrintAnnualTotals(annYear);},"border-radius:6px;font-size:10px;padding:5px 11px;"));
+    annBtns.appendChild(mkBtn("‹","#F1F5F9",function(){STATE.year=annYear-1;render();},"border:1px solid #CBD5E1;color:#1E293B;border-radius:6px;padding:5px 9px;"));
+    annBtns.appendChild(mkBtn("›","#F1F5F9",function(){STATE.year=annYear+1;render();},"border:1px solid #CBD5E1;color:#1E293B;border-radius:6px;padding:5px 9px;"));
+    annHdr.appendChild(annBtns);
     wrap.appendChild(annHdr);
 
     // Build a full-year leave map once (Jan 1 → Dec 31) so we don't
@@ -4401,7 +4431,7 @@ function renderStats() {
     // tracks real leave, for the coverage engine's purposes) — so OT must
     // be counted separately, directly from the raw request list below.
     var yearLmap = buildLmap(STATE.lreqs);
-    var leaveTypeKeys = ["annual","sick","emergency","paternal","coff","training","unpaid","other"];
+    var leaveTypeKeys = ["annual","unplanned","sick","emergency","paternal","coff","training","unpaid","other"];
 
     // Pre-count OT days per employee for this year directly from lreqs,
     // since buildLmap() won't have them.
@@ -4722,7 +4752,35 @@ function renderStats() {
       });
     },"border:1px solid #CBD5E1;color:#64748B;border-radius:7px;font-size:11px;");
 
-    ap(cgBtnRow, printGroupsBtn, saveGroupsBtn, resetBtn);
+    // Next month info
+    var nextCgM = cgM === 11 ? 0 : cgM + 1;
+    var nextCgY = cgM === 11 ? cgY + 1 : cgY;
+    var nextCgKey = nextCgY + "-" + nextCgM;
+    var nextMonthHasGroups = STATE.customGroups && STATE.customGroups[nextCgKey] &&
+      STATE.customGroups[nextCgKey].some(function(g){return g.emps&&g.emps.length>0;});
+
+    var saveNextBtn = mkBtn(
+      nextMonthHasGroups ? "📌 Saved → "+MAR[nextCgM]+" "+nextCgY : "📌 Save for "+MAR[nextCgM]+" "+nextCgY,
+      nextMonthHasGroups ? "#15803D" : "#7C3AED",
+      function(){
+        requireAdmin(function(){
+          // Deep copy current month groups to next month
+          var current = STATE.customGroups[cgMonthKey];
+          if (!current || !current.some(function(g){return g.emps&&g.emps.length>0;})) {
+            showNotif("Current month groups are empty — nothing to copy",true); return;
+          }
+          STATE.customGroups[nextCgKey] = current.map(function(g){
+            return {name:g.name, emps:g.emps.slice()};
+          });
+          sLS("sc6_customgroups", STATE.customGroups);
+          showNotif("📌 Groups copied to "+MAR[nextCgM]+" "+nextCgY+" ✅");
+          render();
+        });
+      },
+      "border-radius:8px;padding:8px 16px;font-size:12px;"
+    );
+
+    ap(cgBtnRow, printGroupsBtn, saveGroupsBtn, saveNextBtn, resetBtn);
     wrap.appendChild(cgBtnRow);
   })();
 
@@ -4936,6 +4994,146 @@ function renderExcel() {
   wrap.appendChild(p2); return wrap;
 }
 
+// ── Shift Swap ────────────────────────────────────────────────────────────
+function renderSwap() {
+  var wrap = document.createElement("div");
+  var card = mkCard("margin-bottom:12px;overflow:hidden;");
+  var hdr3 = mkEl("div","background:#1E293B;padding:10px 13px;border-bottom:1px solid #334155;");
+  ap(hdr3,
+    mkEl("div","font-size:13px;font-weight:700;color:#F8FAFC;","🔄 Shift Swap Requests"),
+    mkEl("div","font-size:10px;color:#64748B;","Two employees swap their shift days — admin approves")
+  );
+  card.appendChild(hdr3);
+
+  // New swap form
+  var fb3 = mkEl("div","padding:13px;border-bottom:1px solid #334155;");
+  fb3.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;margin-bottom:8px;","➕ New Swap Request"));
+  var empOpts3 = [["","-- Employee A --"]];
+  for(var k3 in STATE.emps){if(STATE.emps[k3].group!=="G")empOpts3.push([STATE.emps[k3].id,STATE.emps[k3].name+" ("+STATE.emps[k3].group+")"]);}
+  var empOpts3b = [["","-- Employee B --"]];
+  for(var k3b in STATE.emps){if(STATE.emps[k3b].group!=="G")empOpts3b.push([STATE.emps[k3b].id,STATE.emps[k3b].name+" ("+STATE.emps[k3b].group+")"]);}
+
+  var selA=mkSel("",empOpts3); var dsA=mkInp("","Date A","date");
+  var selB=mkSel("",empOpts3b); var dsB=mkInp("","Date B","date");
+  var swGrid=mkEl("div","display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;direction:ltr;");
+  ap(swGrid,mkLbl("Employee A",selA),mkLbl("Employee B",selB),mkLbl("Day A",dsA),mkLbl("Day B",dsB));
+  fb3.appendChild(swGrid);
+  fb3.appendChild(mkBtn("Submit Swap","#7C3AED",function(){
+    if(!selA.value||!selB.value||!dsA.value||!dsB.value){showNotif("Fill all fields",true);return;}
+    if(selA.value===selB.value){showNotif("Select two different employees",true);return;}
+    var eA=STATE.emps[selA.value],eB=STATE.emps[selB.value];
+    var shA=getEmpEffectiveShift(eA,dsA.value,doy(parseDs(dsA.value)));
+    var shB=getEmpEffectiveShift(eB,dsB.value,doy(parseDs(dsB.value)));
+    var req3={id:"sw"+Date.now(),empA:selA.value,empB:selB.value,dsA:dsA.value,dsB:dsB.value,shiftA:shA,shiftB:shB,status:"pending",requestedAt:new Date().toISOString()};
+    STATE.swapRequests.push(req3);
+    sLS("sc6_swapreqs",STATE.swapRequests);
+    showNotif("✅ Swap request submitted");render();
+  },"border-radius:8px;font-size:12px;"));
+  card.appendChild(fb3);
+
+  // List of swap requests
+  var listDiv=mkEl("div","padding:10px 13px;");
+  var swaps=(STATE.swapRequests||[]).slice().reverse();
+  if(!swaps.length){listDiv.appendChild(mkEl("div","color:#475569;font-size:11px;padding:10px 0;","No swap requests yet"));}
+  swaps.forEach(function(sw){
+    var eA2=STATE.emps[sw.empA],eB2=STATE.emps[sw.empB];
+    var row3=mkRow("background:#0F172A;border-radius:8px;padding:9px 12px;margin-bottom:7px;flex-wrap:wrap;gap:8px;align-items:center;");
+    var info3=mkEl("div","flex:1;font-size:11px;color:#E2E8F0;","");
+    info3.innerHTML="<b>"+(eA2?eA2.name:"?")+"</b> ("+sw.dsA+" "+sw.shiftA+") ⇄ <b>"+(eB2?eB2.name:"?")+"</b> ("+sw.dsB+" "+sw.shiftB+")";
+    row3.appendChild(info3);
+    var stColor=sw.status==="approved"?"#34D399":sw.status==="rejected"?"#F87171":"#FCD34D";
+    row3.appendChild(mkChip(sw.status.toUpperCase(),stColor+"22",stColor));
+    if(sw.status==="pending"){
+      row3.appendChild(mkBtn("✅","#064E3B",function(){
+        requireAdmin(function(){
+          sw.status="approved";
+          // Apply swap: override shifts
+          if(!STATE.shiftOverride[sw.empA])STATE.shiftOverride[sw.empA]={};
+          if(!STATE.shiftOverride[sw.empB])STATE.shiftOverride[sw.empB]={};
+          STATE.shiftOverride[sw.empA][sw.dsA]=sw.shiftB;
+          STATE.shiftOverride[sw.empB][sw.dsB]=sw.shiftA;
+          sLS("sc6_swapreqs",STATE.swapRequests);
+          sLS("sc6_shiftoverride",STATE.shiftOverride);
+          STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
+          showNotif("✅ Swap approved");render();
+        });
+      },"border-radius:5px;padding:4px 8px;font-size:11px;"));
+      row3.appendChild(mkBtn("✕","#7F1D1D22",function(){
+        requireAdmin(function(){
+          sw.status="rejected";
+          sLS("sc6_swapreqs",STATE.swapRequests);
+          showNotif("Swap rejected");render();
+        });
+      },"border:1px solid #EF4444;color:#F87171;border-radius:5px;padding:4px 8px;font-size:11px;"));
+    }
+    listDiv.appendChild(row3);
+  });
+  card.appendChild(listDiv);
+  wrap.appendChild(card);
+  return wrap;
+}
+
+// ── Employee Portal ───────────────────────────────────────────────────────
+function renderPortal() {
+  var wrap = document.createElement("div");
+  var card = mkCard("margin-bottom:12px;overflow:hidden;");
+  var hdr4=mkEl("div","background:#1E293B;padding:10px 13px;border-bottom:1px solid #334155;");
+  ap(hdr4,
+    mkEl("div","font-size:13px;font-weight:700;color:#F8FAFC;","🙋 Employee Portal"),
+    mkEl("div","font-size:10px;color:#64748B;","Employees submit leave requests here — admin approves from Leaves tab")
+  );
+  card.appendChild(hdr4);
+
+  // Submit form
+  var fb4=mkEl("div","padding:13px;border-bottom:1px solid #334155;");
+  fb4.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;margin-bottom:8px;","📤 Submit Leave Request"));
+  var empOpts4=[["","-- Select Employee --"]];
+  for(var k4 in STATE.emps)empOpts4.push([STATE.emps[k4].id,STATE.emps[k4].name+" ("+STATE.emps[k4].group+")"]);
+  var ltOpts4=[];
+  for(var lk4 in LC)ltOpts4.push([lk4,LC[lk4].code+" — "+LC[lk4].lb]);
+  var pEmpSel=mkSel("",empOpts4);
+  var pLtSel=mkSel("annual",ltOpts4);
+  var pFrom=mkInp("","","date"); pFrom.style.direction="ltr";
+  var pTo=mkInp("","","date"); pTo.style.direction="ltr";
+  var pReason=mkInp("","Reason (optional)");
+  var pfGrid=mkEl("div","display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;direction:ltr;");
+  ap(pfGrid,mkLbl("Employee",pEmpSel),mkLbl("Leave Type",pLtSel),mkLbl("From",pFrom),mkLbl("To",pTo));
+  fb4.appendChild(pfGrid);
+  fb4.appendChild(mkLbl("Reason",pReason));
+  fb4.appendChild(mkEl("div","height:8px;",""));
+  fb4.appendChild(mkBtn("📤 Submit Request","#3B82F6",function(){
+    if(!pEmpSel.value||!pFrom.value||!pTo.value){showNotif("Fill required fields",true);return;}
+    if(pTo.value<pFrom.value){showNotif("End date before start date",true);return;}
+    var pr={id:"pr"+Date.now(),empId:pEmpSel.value,lt:pLtSel.value,from:pFrom.value,to:pTo.value,reason:pReason.value,status:"pending",requestedAt:new Date().toISOString()};
+    // Add to main lreqs as pending — admin approves from Leaves tab
+    STATE.lreqs.push({id:pr.id,empId:pr.empId,lt:pr.lt,from:pr.from,to:pr.to,reason:pr.reason,status:"pending",requestedAt:pr.requestedAt});
+    sLS("sc6_lreqs",STATE.lreqs);
+    showNotif("✅ Request submitted — pending admin approval");
+    pEmpSel.value="";pFrom.value="";pTo.value="";pReason.value="";render();
+  },"border-radius:8px;font-size:12px;margin-top:8px;"));
+  card.appendChild(fb4);
+
+  // My requests list (filtered by selected employee)
+  var myDiv=mkEl("div","padding:10px 13px;");
+  myDiv.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;margin-bottom:8px;","📋 Recent Requests (all employees)"));
+  var recent=STATE.lreqs.filter(function(r){return r.requestedAt;}).slice(-20).reverse();
+  if(!recent.length){myDiv.appendChild(mkEl("div","color:#475569;font-size:11px;","No requests yet"));}
+  recent.forEach(function(lr){
+    var emp4=STATE.emps[lr.empId];
+    var lc4=LC[lr.lt]||OT;
+    var stColor=lr.status==="approved"?"#34D399":lr.status==="rejected"?"#F87171":"#FCD34D";
+    var row4=mkRow("background:#0F172A;border-radius:8px;padding:8px 12px;margin-bottom:6px;gap:8px;align-items:center;flex-wrap:wrap;");
+    var ri4=mkEl("div","flex:1;font-size:10px;color:#E2E8F0;","");
+    ri4.innerHTML="<b>"+(emp4?emp4.name:"?")+"</b> · <span style='color:"+lc4.tx+";background:"+lc4.bg+";padding:1px 5px;border-radius:3px;'>"+lc4.code+"</span> · "+lr.from+(lr.to!==lr.from?" → "+lr.to:"")+(lr.reason?" · "+lr.reason:"");
+    row4.appendChild(ri4);
+    row4.appendChild(mkChip(lr.status.toUpperCase(),stColor+"22",stColor));
+    myDiv.appendChild(row4);
+  });
+  card.appendChild(myDiv);
+  wrap.appendChild(card);
+  return wrap;
+}
+
 function renderAdmins() {
   if (!STATE.isAdmin) {
     var lockDiv = mkEl("div","text-align:center;padding:36px;");
@@ -4997,14 +5195,156 @@ function renderAdmins() {
 }
 
 // ── Export / Print ────────────────────────────
+// ── Print Annual Statistics ───────────────────────────────────────────────
+function doPrintAnnualStats() {
+  var y2=STATE.year;
+  var allE=[]; for(var k in STATE.emps)if(STATE.emps[k].group!=="G")allE.push(STATE.emps[k]);
+  allE.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
+  var MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var LEAVE_TYPES=["annual","unplanned","sick","emergency","paternal","coff","training","unpaid","other","overtime"];
+  var LEAVE_LABELS=["AL","UP","SL","EL","PL","C-OFF","TL","UL","OL","OT"];
+  var lmap_s=buildLmap(STATE.lreqs);
+  var td="border:1px solid #CBD5E1;padding:4px 6px;font-size:7pt;";
+
+  // Build OT count per employee
+  var otByEmp={};
+  if(STATE.covData&&STATE.covData.cov){
+    for(var ds_s in STATE.covData.cov){
+      (STATE.covData.cov[ds_s].issues||[]).forEach(function(i){
+        if(i.type==="cover"&&i.emp&&!i.internal)otByEmp[i.emp.id]=(otByEmp[i.emp.id]||0)+1;
+      });
+    }
+  }
+
+  var html="<!DOCTYPE html><html><head><meta charset='UTF-8'/><style>"
+    +"*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial;padding:10px;background:white;}"
+    +"@page{size:A4 landscape;margin:8mm;}td,th{-webkit-print-color-adjust:exact;print-color-adjust:exact;}"
+    +"h3{margin:12px 0 5px;font-size:10pt;border-bottom:2px solid #1E3A8A;padding-bottom:3px;color:#1E3A8A;}"
+    +"@media print{.np{display:none!important;}}"
+    +"</style></head><body>";
+
+  html+="<div class='np' style='margin-bottom:8px;display:flex;gap:8px;'>"
+    +"<button onclick='window.print()' style='background:#7C3AED;color:white;border:none;padding:5px 14px;border-radius:5px;cursor:pointer;'>🖨️ Print</button>"
+    +"<button onclick='window.close()' style='background:#EF4444;color:white;border:none;padding:5px 14px;border-radius:5px;cursor:pointer;'>✕</button></div>";
+
+  html+="<h2 style='font-size:13pt;margin-bottom:2px;'>Annual Statistics Report — "+y2+"</h2>";
+  html+="<p style='font-size:7pt;color:#64748B;margin-bottom:8px;'>Generated: "+new Date().toLocaleDateString()+" | Total staff: "+allE.length+"</p>";
+
+  // Section 1: Summary per group
+  html+="<h3>1. Group Summary</h3>";
+  html+="<table style='width:100%;border-collapse:collapse;margin-bottom:10px;'><thead><tr style='background:#1E3A8A;color:white;'>";
+  ["Group","Members","Total AL","Total UP","Total SL","Total OT","Avg AL/Person"].forEach(function(h){html+="<th style='"+td+"color:white;text-align:center;'>"+h+"</th>";});
+  html+="</tr></thead><tbody>";
+  ["A","B","C","D","E"].forEach(function(g,gi){
+    var gEmps=allE.filter(function(e){return e.group===g;});
+    if(!gEmps.length)return;
+    var totAL=0,totUP=0,totSL=0,totOT=0;
+    gEmps.forEach(function(e){
+      STATE.lreqs.forEach(function(lr){
+        if(lr.empId!==e.id||lr.status!=='approved')return;
+        if(parseInt(lr.from.slice(0,4))!==y2)return;
+        var cnt=rangeD(lr.from,lr.to).filter(function(ds){return getEmpEffectiveShift(e,ds,doy(parseDs(ds)))!=='off';}).length;
+        if(lr.lt==='annual')totAL+=cnt;
+        else if(lr.lt==='unplanned')totUP+=cnt;
+        else if(lr.lt==='sick')totSL+=cnt;
+        else if(lr.lt==='overtime')totOT+=cnt;
+      });
+    });
+    var bg=gi%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'>";
+    html+="<td style='"+td+"font-weight:bold;text-align:center;'>Group "+g+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+gEmps.length+"</td>";
+    html+="<td style='"+td+"text-align:center;color:#065F46;font-weight:bold;'>"+totAL+"d</td>";
+    html+="<td style='"+td+"text-align:center;color:#713F12;font-weight:bold;'>"+totUP+"d</td>";
+    html+="<td style='"+td+"text-align:center;color:#7F1D1D;font-weight:bold;'>"+totSL+"d</td>";
+    html+="<td style='"+td+"text-align:center;color:#92400E;font-weight:bold;'>"+totOT+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+(gEmps.length?Math.round(totAL/gEmps.length*10)/10:"—")+"d</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+
+  // Section 2: Full leave table per employee
+  html+="<h3>2. Leave Details Per Employee</h3>";
+  html+="<table style='width:100%;border-collapse:collapse;margin-bottom:10px;'><thead><tr style='background:#1E3A8A;color:white;'>";
+  ["Employee","Grp","Role"].concat(LEAVE_LABELS).concat(["OT","AL Left","Status"]).forEach(function(h){
+    html+="<th style='"+td+"color:white;text-align:center;font-size:6.5pt;'>"+h+"</th>";
+  });
+  html+="</tr></thead><tbody>";
+  allE.forEach(function(emp,ri){
+    var counts={};LEAVE_TYPES.forEach(function(lt){counts[lt]=0;});
+    STATE.lreqs.forEach(function(lr){
+      if(lr.empId!==emp.id||lr.status!=='approved')return;
+      if(parseInt(lr.from.slice(0,4))!==y2)return;
+      if(!counts.hasOwnProperty(lr.lt))return;
+      var cnt=rangeD(lr.from,lr.to).filter(function(ds){return getEmpEffectiveShift(emp,ds,doy(parseDs(ds)))!=='off';}).length;
+      counts[lr.lt]+=cnt;
+    });
+    var alQ=getEmpAlQuota(emp.id);
+    var alUsed=counts.annual+counts.unplanned;
+    var alLeft=alQ-alUsed;
+    var otM=otByEmp[emp.id]||0;
+    var rc=getR(getEmpRoleAtMonth(emp,y2,STATE.month));
+    var status="✅ OK";var statusBg="#FFFFFF";
+    if(alLeft<0){status="🔴 AL Over";statusBg="#FEE2E2";}
+    else if(alLeft<=3&&alUsed>0){status="⚠️ Low AL";statusBg="#FEF3C7";}
+    else if(otM>=6){status="🔴 OT Full";statusBg="#FEE2E2";}
+    var bg=ri%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'>";
+    html+="<td style='"+td+"font-weight:bold;font-size:6.5pt;'>"+emp.name+"</td>";
+    html+="<td style='"+td+"text-align:center;'>"+emp.group+"</td>";
+    html+="<td style='"+td+"text-align:center;background:"+rc.cl+"22;color:"+rc.cl+";font-weight:bold;font-size:6pt;'>"+getRTitle(rc.sh)+"</td>";
+    LEAVE_TYPES.forEach(function(lt){
+      var v=counts[lt]||0;
+      html+="<td style='"+td+"text-align:center;"+(v>0?"font-weight:bold;":"color:#CBD5E1;")+"font-size:6.5pt;'>"+(v>0?v+"d":"—")+"</td>";
+    });
+    html+="<td style='"+td+"text-align:center;font-weight:bold;color:#92400E;font-size:6.5pt;'>"+otM+"</td>";
+    html+="<td style='"+td+"text-align:center;font-weight:bold;color:"+(alLeft<0?"#EF4444":alLeft<=3?"#F59E0B":"#065F46")+";font-size:6.5pt;'>"+alLeft+"d</td>";
+    html+="<td style='"+td+"text-align:center;background:"+statusBg+";font-size:6pt;'>"+status+"</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+
+  // Section 3: Monthly AL+UP trend
+  html+="<h3>3. Monthly AL & Unplanned Leave Trend</h3>";
+  html+="<table style='width:100%;border-collapse:collapse;'><thead><tr style='background:#065F46;color:white;'>";
+  html+="<th style='"+td+"color:white;text-align:left;'>Employee</th><th style='"+td+"color:white;'>Grp</th>";
+  MONTHS.forEach(function(mn){html+="<th style='"+td+"color:white;text-align:center;font-size:6pt;'>"+mn+"</th>";});
+  html+="<th style='"+td+"color:white;text-align:center;'>Total</th></tr></thead><tbody>";
+  allE.forEach(function(emp,ri){
+    var mt=new Array(12).fill(0),gt=0;
+    STATE.lreqs.forEach(function(lr){
+      if(lr.empId!==emp.id||lr.status!=='approved')return;
+      if(lr.lt!=='annual'&&lr.lt!=='unplanned'&&lr.lt!=='coff')return;
+      if(parseInt(lr.from.slice(0,4))!==y2)return;
+      rangeD(lr.from,lr.to).forEach(function(ds){
+        if(ds.slice(0,4)!==String(y2))return;
+        var mm=parseInt(ds.slice(5,7))-1;
+        if(getEmpEffectiveShift(emp,ds,doy(parseDs(ds)))!=='off'){mt[mm]++;gt++;}
+      });
+    });
+    var bg=ri%2===0?"#FFFFFF":"#F8FAFC";
+    html+="<tr style='background:"+bg+"'>";
+    html+="<td style='"+td+"font-weight:bold;font-size:6.5pt;'>"+emp.name+"</td>";
+    html+="<td style='"+td+"text-align:center;font-size:6pt;'>"+emp.group+"</td>";
+    mt.forEach(function(v){html+="<td style='"+td+"text-align:center;font-size:6.5pt;"+(v>0?"background:#DCFCE7;color:#065F46;font-weight:bold;":"color:#CBD5E1;")+"'>"+(v>0?v:"—")+"</td>";});
+    html+="<td style='"+td+"text-align:center;font-weight:bold;font-size:6.5pt;color:"+(gt>0?"#065F46":"#CBD5E1")+"'>"+(gt>0?gt+"d":"—")+"</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+  html+="<p style='margin-top:8px;font-size:6pt;color:#94A3B8;'>Annual Statistics — "+y2+" | Shift Schedule System</p>";
+  html+="</body></html>";
+  var w=window.open("","_blank","width=1200,height=800");
+  if(w){w.document.write(html);w.document.close();}
+}
+
 // ── Print Annual Totals ───────────────────────────────────────────────────
 function doPrintAnnualTotals(planYear) {
   var y = planYear || STATE.planYear || new Date().getFullYear();
   var allE = []; for(var k in STATE.emps) if(STATE.emps[k].group!=="G") allE.push(STATE.emps[k]);
   allE.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
   var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  var LEAVE_TYPES = ["annual","sick","emergency","paternal","coff","training","unpaid","other","overtime"];
-  var LEAVE_LABELS = ["AL","SL","EL","PL","C-OFF","TL","UL","OL","OT"];
+  var LEAVE_TYPES = ["annual","unplanned","sick","emergency","paternal","coff","training","unpaid","other","overtime"];
+  var LEAVE_LABELS = ["AL","UP","SL","EL","PL","C-OFF","TL","UL","OL","OT"];
   var lmap_a = buildLmap(STATE.lreqs);
   var COMP_TYPES_A = ["annual","coff","paternal"];
 
@@ -5101,7 +5441,7 @@ function doPrintAnnualTotals(planYear) {
   allE.forEach(function(emp,ri){
     var empAlQuota=getEmpAlQuota(emp.id);
     var alUsed=0;
-    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='annual')return;if(parseInt(lr.from.slice(0,4))!==y)return;rangeD(lr.from,lr.to).forEach(function(ds){if(getEmpEffectiveShift(emp,ds,doy(parseDs(ds)))!=='off')alUsed++;});});
+    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='annual'&&lr.lt!=='unplanned')return;if(parseInt(lr.from.slice(0,4))!==y)return;rangeD(lr.from,lr.to).forEach(function(ds){if(getEmpEffectiveShift(emp,ds,doy(parseDs(ds)))!=='off')alUsed++;});});
     var alLeft=empAlQuota-alUsed;
     var coffFromH=0,coffUsed=0;
     var coffManual=(STATE.leaveBalance&&STATE.leaveBalance[emp.id]&&STATE.leaveBalance[emp.id].coffBonus)||0;
@@ -5152,7 +5492,7 @@ function doPrintLeaveStatus() {
   allE.forEach(function(emp,ri){
     var empAlQuota=getEmpAlQuota(emp.id);
     var alUsed=0;
-    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='annual')return;if(parseInt(lr.from.slice(0,4))!==y2)return;rangeD(lr.from,lr.to).forEach(function(ds){if(getEmpEffectiveShift(emp,ds,doy(parseDs(ds)))!=='off')alUsed++;});});
+    STATE.lreqs.forEach(function(lr){if(lr.empId!==emp.id||lr.status!=='approved'||lr.lt!=='annual'&&lr.lt!=='unplanned')return;if(parseInt(lr.from.slice(0,4))!==y2)return;rangeD(lr.from,lr.to).forEach(function(ds){if(getEmpEffectiveShift(emp,ds,doy(parseDs(ds)))!=='off')alUsed++;});});
     var alLeft=empAlQuota-alUsed;
     var coffFromH=0,coffUsed=0;
     var coffManual=(STATE.leaveBalance&&STATE.leaveBalance[emp.id]&&STATE.leaveBalance[emp.id].coffBonus)||0;
@@ -5395,6 +5735,41 @@ function doPrintGroups() {
     });
     html += "</tbody></table></div>";
   }
+
+  // ── 📌 Save for Next Month ─────────────────────────────────────────────
+  var nextPgM=m===11?0:m+1, nextPgY=m===11?y+1:y;
+  var nextPgKey=nextPgY+"-"+nextPgM;
+  var MONTHS_F=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  var nextHasData=STATE.customGroups&&STATE.customGroups[nextPgKey]&&
+    STATE.customGroups[nextPgKey].some(function(g){return g.emps&&g.emps.length>0;});
+
+  html+="<div style='margin-top:16px;border:2px solid #7C3AED;border-radius:10px;padding:12px;background:#F5F3FF;page-break-inside:avoid;'>";
+  html+="<div style='font-size:10pt;font-weight:bold;color:#7C3AED;margin-bottom:6px;'>📌 Save for Next Month — "+MONTHS_F[nextPgM]+" "+nextPgY+"</div>";
+  if(nextHasData){
+    html+="<p style='font-size:8pt;color:#065F46;margin-bottom:8px;'>✅ Already saved for "+MONTHS_F[nextPgM]+" "+nextPgY+" · "+
+      STATE.customGroups[nextPgKey].filter(function(g){return g.emps&&g.emps.length>0;}).length+" groups configured.</p>";
+  } else {
+    html+="<p style='font-size:8pt;color:#64748B;margin-bottom:8px;'>⚠️ Not yet configured for "+MONTHS_F[nextPgM]+" "+nextPgY+".</p>";
+  }
+  html+="<table style='width:100%;border-collapse:collapse;font-size:7.5pt;'>";
+  html+="<thead><tr style='background:#7C3AED;color:white;'>";
+  html+="<th style='padding:4px 6px;text-align:left;border:1px solid #A78BFA;'>Group</th>";
+  html+="<th style='padding:4px 6px;text-align:center;border:1px solid #A78BFA;'>Members</th>";
+  html+="<th style='padding:4px 6px;text-align:left;border:1px solid #A78BFA;'>Employees</th>";
+  html+="</tr></thead><tbody>";
+  pgGroups.forEach(function(g,gi){
+    var aEmps=(g.emps||[]).filter(function(id){return id&&STATE.emps[id];});
+    if(!aEmps.length)return;
+    html+="<tr style='background:"+(gi%2===0?"#FAF5FF":"#F5F3FF")+"'>";
+    html+="<td style='padding:4px 6px;font-weight:bold;border:1px solid #DDD6FE;'>"+g.name+"</td>";
+    html+="<td style='padding:4px 6px;text-align:center;border:1px solid #DDD6FE;'>"+aEmps.length+"</td>";
+    html+="<td style='padding:4px 6px;border:1px solid #DDD6FE;'>"+aEmps.map(function(id){var e=STATE.emps[id];return e?e.name+" ("+e.group+")":"";}).join(" · ")+"</td>";
+    html+="</tr>";
+  });
+  html+="</tbody></table>";
+  html+="<p style='margin-top:6px;font-size:7pt;color:#7C3AED;font-style:italic;'>→ To apply: Stats → Custom Groups → 📌 Save for "+MONTHS_F[nextPgM]+"</p>";
+  html+="</div>";
+
   html += "</body></html>";
   var w=window.open("","_blank","width=800,height=900");
   if(w){w.document.write(html);w.document.close();}else showNotif("⚠️ Allow popups",true);
@@ -6555,6 +6930,13 @@ function getEmpGroupAtDate(emp, ds) {
   return emp.group;
 }
 
+// Creates a button that is hidden in viewer mode (non-admin)
+function mkAdminBtn(label, bg, cb, css) {
+  var b = mkBtn(label, bg, cb, css);
+  b.className = (b.className||"") + " admin-only";
+  return b;
+}
+
 function getEmpAlQuota(empId) {
   var AL_DEFAULT = (STATE.rules && STATE.rules.annualLeaveQuota) || 30;
   return (STATE.leaveBalance && STATE.leaveBalance[empId] && STATE.leaveBalance[empId].annual)
@@ -6604,6 +6986,8 @@ function init() {
   STATE.customGroups = lLS("sc6_customgroups", {});
   STATE.holidays = lLS("sc6_holidays", []);
   STATE.leaveBalance = lLS("sc6_leavebalance", {});
+  STATE.swapRequests = lLS("sc6_swapreqs", []);
+  STATE.portalRequests = lLS("sc6_portalreqs", []);
   STATE.theme = lLS("sc6_theme", "dark");
   applyTheme(STATE.theme);
   STATE.isAdmin = false;
