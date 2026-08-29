@@ -4079,7 +4079,7 @@ function renderStats() {
     // ── C-OFF Balance ────────────────────────────────────────────
     // 1. From public holidays: days employee was on AL/PL/COFF/OT/OFF during holiday
     var coffFromHolidays = 0;
-    var COMP_TYPES_H = ["annual","coff","paternal"];
+    var COMP_TYPES_H = ["annual","coff","paternal","sick"];
     var lmap_coff = STATE.covData ? STATE.covData.lmap : buildLmap(STATE.lreqs);
     // General (G) staff: natural OFF on holidays, no C-OFF compensation
     if (emp.group !== "G" && STATE.holidays && STATE.holidays.length > 0) {
@@ -4681,7 +4681,7 @@ function renderStats() {
         var cgCoffManual=(STATE.leaveBalance&&STATE.leaveBalance[emp8.id]&&STATE.leaveBalance[emp8.id].coffBonus)||0;
         if(emp8.group!=="G"&&STATE.holidays){
           var cgLmapH=STATE.covData?STATE.covData.lmap:buildLmap(STATE.lreqs);
-          var CTYP=["annual","coff","paternal"];
+          var CTYP=["annual","coff","paternal","sick"];
           STATE.holidays.forEach(function(h){
             rangeD(h.from,h.to).forEach(function(hds){
               var heff=getEmpEffectiveShift(emp8,hds,doy(parseDs(hds)));
@@ -5357,7 +5357,7 @@ function doPrintAnnualTotals(planYear) {
   var LEAVE_TYPES = ["annual","unplanned","sick","emergency","paternal","coff","training","unpaid","other","overtime"];
   var LEAVE_LABELS = ["AL","UP","SL","EL","PL","C-OFF","TL","UL","OL","OT"];
   var lmap_a = buildLmap(STATE.lreqs);
-  var COMP_TYPES_A = ["annual","coff","paternal"];
+  var COMP_TYPES_A = ["annual","coff","paternal","sick"];
 
   var td = "border:1px solid #CBD5E1;padding:4px 6px;font-size:7.5pt;";
 
@@ -5490,7 +5490,7 @@ function doPrintLeaveStatus() {
   var y2=STATE.year, m2=STATE.month;
   var allE=[]; for(var k in STATE.emps)if(STATE.emps[k].group!=="G")allE.push(STATE.emps[k]);
   allE.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
-  var COMP_TYPES_P=["annual","coff","paternal"];
+  var COMP_TYPES_P=["annual","coff","paternal","sick"];
   var lmap_p=STATE.covData?STATE.covData.lmap:buildLmap(STATE.lreqs);
   var td="border:1px solid #CBD5E1;padding:5px 7px;font-size:8pt;";
   var html="<!DOCTYPE html><html><head><meta charset='UTF-8'/><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial;padding:12px;}@page{size:A4 landscape;margin:10mm;}td,th{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@media print{.np{display:none!important;}}</style></head><body>";
@@ -5707,7 +5707,7 @@ function doPrintGroups() {
       var cgCoffManual=(STATE.leaveBalance&&STATE.leaveBalance[emp8.id]&&STATE.leaveBalance[emp8.id].coffBonus)||0;
       if(emp8.group!=="G"&&STATE.holidays){
         var cgLmH=lmap_g;
-        var CTYP2=["annual","coff","paternal"];
+        var CTYP2=["annual","coff","paternal","sick"];
         STATE.holidays.forEach(function(h){
           rangeD(h.from,h.to).forEach(function(hds){
             var heff=getEmpEffectiveShift(emp8,hds,doy(parseDs(hds)));
@@ -6583,7 +6583,7 @@ function renderHolidays() {
     // Any employee who was on AL/C-OFF/PL/OT or natural OFF during a
     // public holiday gets compensation days — those who were simply working
     // are NOT listed here (their OT is handled separately).
-    var COMP_TYPES = ["annual","coff","paternal"];
+    var COMP_TYPES = ["annual","coff","paternal","sick"];
     var lmap_h = STATE.covData ? STATE.covData.lmap : buildLmap(STATE.lreqs);
     var empRows = [];
     for (var k in STATE.emps) {
@@ -6659,7 +6659,7 @@ function renderHolidays() {
     );
     sumCard.appendChild(sumHdr);
 
-    var COMP_T=["annual","coff","paternal"];
+    var COMP_T=["annual","coff","paternal","sick"];
     var lmap_s=STATE.covData?STATE.covData.lmap:buildLmap(STATE.lreqs);
 
     // Build data: for each employee, for each holiday → days earned
@@ -6736,7 +6736,7 @@ function renderHolidays() {
 // ── Print Holiday C-OFF Summary ──────────────────────────────────────────
 function doPrintHolidaySummary() {
   if(!STATE.holidays||!STATE.holidays.length){showNotif("No holidays added yet",true);return;}
-  var COMP_T=["annual","coff","paternal"];
+  var COMP_T=["annual","coff","paternal","sick"];
   var lmap_p=STATE.covData?STATE.covData.lmap:buildLmap(STATE.lreqs);
   var allEmps3=[];
   for(var ke2 in STATE.emps)if(STATE.emps[ke2].group!=="G")allEmps3.push(STATE.emps[ke2]);
@@ -6816,7 +6816,7 @@ function doPrintHolidaySummary() {
 // ── Print Holiday Report ──────────────────────────────────────
 function doPrintHoliday(h) {
   var days = rangeD(h.from, h.to);
-  var COMP_TYPES = ["annual","coff","paternal"];
+  var COMP_TYPES = ["annual","coff","paternal","sick"];
   var lmap_h = STATE.covData ? STATE.covData.lmap : buildLmap(STATE.lreqs);
   var empRows = [];
   for (var k in STATE.emps) {
