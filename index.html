@@ -1953,7 +1953,46 @@ function renderCov() {
             undoBtn.onclick = function() { requirePerm("canAssignOT", function(){ delete STATE.otAssign[nk]; sLS("sc6_otassign",STATE.otAssign); STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month); showNotif("Reset to Auto-select"); render(); }); };
             topRow.appendChild(undoBtn);
             issRow.appendChild(topRow);
-            ap(issRow, mkEl("div","font-size:10px;color:#EF444499;","This slot will print with a red 'Needs staffing' alert. Tap 'Undo' to restore auto-selection."));
+            ap(issRow, mkEl("div","font-size:10px;color:#EF444499;margin-bottom:6px;","This slot will print with a red 'Needs staffing' alert. Tap 'Undo' to restore auto-selection."));
+
+            // Allow admin to still pick manually even though auto found no one
+            var manDiv_nc = mkEl("div","padding:7px;background:#0F172A;border-radius:6px;border:1px solid #33415566;");
+            ap(manDiv_nc, mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:5px;","👤 Or assign manually:"));
+            var manList_nc = mkEl("div","display:flex;flex-direction:column;gap:3px;max-height:160px;overflow-y:auto;");
+            var role_nc = iss.slotId.replace(/[0-9]/g,"");
+            var compat_nc = compatRoles(role_nc);
+            var all_nc = Object.values(STATE.emps);
+            var cands_nc = all_nc.filter(function(ce){
+              if(ce.group==="G") return false;
+              if(compat_nc.indexOf(getEmpRoleAtMonth(ce,STATE.year,STATE.month))<0) return false;
+              return true;
+            });
+            cands_nc.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:0;});
+            cands_nc.forEach(function(ce){
+              var isSel=(STATE.otAssign[nk]===ce.id);
+              var ceff=getEmpEffectiveShift(ce,ds3,doy(parseDs(ds3)));
+              var clt=STATE.covData?lmapGet(STATE.covData.lmap,ce.id,ds3):null;
+              var isOff=ceff==="off"&&!clt;
+              var isOnLeave=!!clt&&clt!=="overtime";
+              var lbl=ce.name+" ("+getEmpRoleAtMonth(ce,STATE.year,STATE.month)+", Grp "+ce.group+")";
+              var note=isOff?" · 🏠 OFF":isOnLeave?" · 🏖️ On leave":"  · ⚙️ "+ceff;
+              var cb_nc=document.createElement("button");
+              cb_nc.style.cssText="background:"+(isSel?"#1E3A8A":"#1E293B")+";color:"+(isSel?"#93C5FD":"#CBD5E1")+";border:1px solid "+(isSel?"#3B82F6":"#334155")+";border-radius:5px;padding:5px 9px;font-size:10px;cursor:pointer;font-family:inherit;text-align:right;width:100%;";
+              cb_nc.textContent=(isSel?"✓ ":"")+lbl+note;
+              cb_nc.onclick=function(){requirePerm("canAssignOT",function(){
+                if(isSel){delete STATE.otAssign[nk];}
+                else{STATE.otAssign[nk]=ce.id;}
+                sLS("sc6_otassign",STATE.otAssign);
+                STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
+                showNotif(isSel?"Cleared":"✅ "+ce.name+" assigned");render();
+              });};
+              manList_nc.appendChild(cb_nc);
+            });
+            if(!cands_nc.length){
+              manList_nc.appendChild(mkEl("div","font-size:10px;color:#475569;padding:4px;","No compatible employees found"));
+            }
+            manDiv_nc.appendChild(manList_nc);
+            issRow.appendChild(manDiv_nc);
             issWrap.appendChild(issRow);
             return;
           }
@@ -1979,20 +2018,45 @@ function renderCov() {
               });};
               cr_lk.appendChild(nb_lk);
             })(pk_lk);
-            var lkCands=iss.cands||[];
-            if(lkCands.length===0) cr_lk.appendChild(mkEl("div","font-size:10px;color:#475569;padding:4px;","No candidates available"));
+
+            // Build candidates: use iss.cands if available, otherwise show ALL
+            // compatible employees (locked month disabled auto-search so cands=[])
+            var lkCands = iss.cands || [];
+            if (lkCands.length === 0) {
+              // Build full list from all employees — no OT cap restriction when locked
+              var role_lk = iss.slotId ? iss.slotId.replace(/[0-9]/g,"") : "SCE";
+              var compat_lk = compatRoles(role_lk);
+              Object.keys(STATE.emps).forEach(function(eid_lk){
+                var ce_lk = STATE.emps[eid_lk];
+                if (!ce_lk || ce_lk.group === "G") return;
+                var histR_lk = getEmpRoleAtMonth(ce_lk, STATE.year, STATE.month);
+                if (compat_lk.indexOf(histR_lk) < 0) return;
+                var otSoFar_lk = 0;
+                if (STATE.covData && STATE.covData.cov) {
+                  var pfx_lk = String(STATE.year)+"-"+(STATE.month+1<10?"0":"")+(STATE.month+1);
+                  Object.keys(STATE.covData.cov).forEach(function(d_lk){
+                    if (d_lk.slice(0,7) !== pfx_lk) return;
+                    (STATE.covData.cov[d_lk].issues||[]).forEach(function(i_lk){
+                      if (i_lk.type==="cover"&&i_lk.emp&&i_lk.emp.id===eid_lk&&!i_lk.internal) otSoFar_lk++;
+                    });
+                  });
+                }
+                lkCands.push({emp:ce_lk, histRole:histR_lk, otSoFar:otSoFar_lk, noRest:false, restExhausted:false, otInCycle:0});
+              });
+              lkCands.sort(function(a,b){return a.otSoFar-b.otSoFar;});
+            }
+            if (lkCands.length === 0) cr_lk.appendChild(mkEl("div","font-size:10px;color:#475569;padding:4px;","No compatible employees found"));
             for(var lci=0;lci<lkCands.length;lci++){
               (function(cand_lk,pKey_lk2){
                 var isSel_lk=curA_lk===cand_lk.emp.id;
                 var atCap_lk=(cand_lk.otSoFar||0)>=6;
-                var capped_lk=atCap_lk||cand_lk.restExhausted||((cand_lk.otInCycle||0)>=2&&!atCap_lk);
                 var empRc_lk=getR(cand_lk.histRole||cand_lk.emp.role);
                 var cb_lk=document.createElement("button");
-                cb_lk.style.cssText="background:"+(isSel_lk?"#1E3A8A":"#1E293B")+";border:1px solid "+(isSel_lk?"#3B82F6":capped_lk?"#D97706":"#334155")+";border-radius:5px;padding:5px 9px;font-size:10px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px;width:100%;";
+                cb_lk.style.cssText="background:"+(isSel_lk?"#1E3A8A":"#1E293B")+";border:1px solid "+(isSel_lk?"#3B82F6":atCap_lk?"#D97706":"#334155")+";border-radius:5px;padding:5px 9px;font-size:10px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:6px;width:100%;";
                 ap(cb_lk,mkChip(getRTitle(empRc_lk.sh),empRc_lk.cl+"33",empRc_lk.cl),mkEl("span","font-size:10px;color:#E2E8F0;flex:1;text-align:right;",cand_lk.emp.name+" · Grp "+cand_lk.emp.group));
                 if(cand_lk.noRest) cb_lk.appendChild(mkBadge("no rest","#78350F","#FCD34D"));
-                else if(atCap_lk) cb_lk.appendChild(mkBadge("cap","#7F1D1D","#FCA5A5"));
-                cb_lk.appendChild(mkEl("span","font-size:9px;color:#64748B;","this month "+(cand_lk.otSoFar||0)+"/6"));
+                if(atCap_lk) cb_lk.appendChild(mkBadge("OT:"+cand_lk.otSoFar+"/6","#78350F22","#FCD34D"));
+                else cb_lk.appendChild(mkEl("span","font-size:9px;color:#64748B;","OT "+(cand_lk.otSoFar||0)+"/6"));
                 cb_lk.onclick=function(){requirePerm("canAssignOT",function(){
                   STATE.otAssign[pKey_lk2]=cand_lk.emp.id;sLS("sc6_otassign",STATE.otAssign);
                   STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
@@ -2162,6 +2226,13 @@ function renderCov() {
         for (var eki in STATE.emps) {
           var eEmp = STATE.emps[eki];
           if (accountedForIds[eEmp.id]) continue;
+          // Skip G employees (permanent, temporary transfer, or daily override)
+          if (eEmp.group === "G") continue;
+          var eOvr3 = STATE.shiftOverride && STATE.shiftOverride[eEmp.id] && STATE.shiftOverride[eEmp.id][ds3];
+          if (eOvr3 === "general") continue;
+          var eTr3 = STATE.transferLog && STATE.transferLog[eEmp.id];
+          if (eTr3 && eTr3.startDate && ds3 >= eTr3.startDate &&
+              !(eTr3.endDate && ds3 > eTr3.endDate) && eTr3.newGi < 0) continue;
           var eEff = getEmpEffectiveShift(eEmp, ds3, doy(new Date(ds3)));
           if (eEff !== sk) continue;
           var eLt = lmapGet(lmapForDay, eEmp.id, ds3);
@@ -4243,7 +4314,7 @@ function renderStats() {
   (function(){
     var distCard = mkCard("margin-bottom:10px;overflow:hidden;");
     var distHdrRow = mkRow("justify-content:space-between;align-items:center;padding:8px 13px;background:#1E293B;border-bottom:1px solid #334155;");
-    distHdrRow.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;","📅 Leave Distribution — "+y2+" (AL & C-OFF by month)"));
+    distHdrRow.appendChild(mkEl("div","font-size:11px;font-weight:700;color:#94A3B8;","📅 Leave Distribution — "+y2+" (AL / C-OFF / OL by month)"));
     distHdrRow.appendChild(mkBtn("🖨️ Print","#1E3A8A",function(){doPrintLeaveDistribution();},"border-radius:6px;font-size:10px;padding:4px 10px;"));
     distCard.appendChild(distHdrRow);
 
@@ -4269,18 +4340,24 @@ function renderStats() {
     allEmpsArr2.sort(function(a,b){return a.group<b.group?-1:a.group>b.group?1:a.order-b.order;});
 
     allEmpsArr2.forEach(function(emp,ri){
-      var monthTotals=new Array(12).fill(0);
+      var mt_al2=new Array(12).fill(0);
+      var mt_co2=new Array(12).fill(0);
+      var mt_ol2=new Array(12).fill(0);
       var grandTotal=0;
       STATE.lreqs.forEach(function(lr){
         if(lr.empId!==emp.id||lr.status!=='approved')return;
-        if(lr.lt!=='annual'&&lr.lt!=='coff')return;
+        if(lr.lt!=='annual'&&lr.lt!=='coff'&&lr.lt!=='other')return;
         var fromY=parseInt(lr.from.slice(0,4));
         if(fromY!==y2)return;
         rangeD(lr.from,lr.to).forEach(function(ds){
           if(ds.slice(0,4)!==String(y2))return;
-          var mm=parseInt(ds.slice(5,7))-1; // 0-indexed
+          var mm=parseInt(ds.slice(5,7))-1;
           var dv2=doy(parseDs(ds));
-          if(getEmpEffectiveShift(emp,ds,dv2)!=='off'){monthTotals[mm]++;grandTotal++;}
+          if(getEmpEffectiveShift(emp,ds,dv2)!=='off'){
+            if(lr.lt==='annual'){mt_al2[mm]++;grandTotal++;}
+            else if(lr.lt==='coff'){mt_co2[mm]++;grandTotal++;}
+            else if(lr.lt==='other'){mt_ol2[mm]++;grandTotal++;}
+          }
         });
       });
 
@@ -4293,19 +4370,22 @@ function renderStats() {
       grpTd.appendChild(mkChip(emp.group,(GRC[emp.group]||"#fff")+"33",GRC[emp.group]||"#fff"));
       tr3.appendChild(grpTd);
 
-      monthTotals.forEach(function(v,mi){
-        var hasLeave=v>0;
-        var isCurrentMonth=(mi===m2);
+      for(var mi3d=0;mi3d<12;mi3d++){
+        var vAl2=mt_al2[mi3d],vCo2=mt_co2[mi3d],vOl2=mt_ol2[mi3d],vTot2=vAl2+vCo2+vOl2;
+        var isCurrentMonth=(mi3d===m2);
         var td3=mkEl("td","padding:4px 3px;text-align:center;border-bottom:1px solid #E2E8F0;font-size:9px;"+(isCurrentMonth?"background:#EFF6FF;":""),"");
-        if(hasLeave){
-          var chip=mkEl("div","display:inline-block;background:#FEF3C7;color:#92400E;border-radius:4px;padding:1px 5px;font-weight:700;font-size:9px;",v+"d");
-          td3.appendChild(chip);
+        if(vTot2>0){
+          var cellDiv=mkEl("div","display:flex;flex-direction:column;gap:1px;align-items:center;","");
+          if(vAl2>0)cellDiv.appendChild(mkEl("div","display:inline-block;background:#FEF3C7;color:#92400E;border-radius:3px;padding:1px 4px;font-weight:700;font-size:8px;",vAl2+"d AL"));
+          if(vCo2>0)cellDiv.appendChild(mkEl("div","display:inline-block;background:#E0F2FE;color:#0E7490;border-radius:3px;padding:1px 4px;font-weight:700;font-size:8px;",vCo2+"d CO"));
+          if(vOl2>0)cellDiv.appendChild(mkEl("div","display:inline-block;background:#FFF1F2;color:#881337;border-radius:3px;padding:1px 4px;font-weight:700;font-size:8px;",vOl2+"d OL"));
+          td3.appendChild(cellDiv);
         } else {
           td3.textContent="—";
           td3.style.color="#CBD5E1";
         }
         tr3.appendChild(td3);
-      });
+      };
 
       // Total
       var totalTd=mkEl("td","padding:4px 6px;text-align:center;font-weight:800;border-bottom:1px solid #E2E8F0;font-size:10px;color:"+(grandTotal>0?"#1E3A8A":"#CBD5E1")+";background:"+(grandTotal>0?"#EFF6FF":"transparent")+";",grandTotal>0?grandTotal+"d":"—");
@@ -5395,7 +5475,7 @@ function doPrintAnnualTotals(planYear) {
         if(base!=='off'){counts[lt]++;grandTotal++;}
       });
     });
-    var rc = getR(getEmpRoleAtMonth(emp,y,m2||STATE.month));
+    var rc = getR(getEmpRoleAtMonth(emp,y,STATE.month));
     var bg = ri%2===0?"#FFFFFF":"#F8FAFC";
     html += "<tr style='background:"+bg+"'>";
     html += "<td style='"+td+"font-weight:bold;'>"+emp.name+"</td>";
@@ -5545,8 +5625,8 @@ function doPrintLeaveDistribution() {
   html+="<div class='np' style='margin-bottom:8px;display:flex;gap:8px;'>"
     +"<button onclick='window.print()' style='background:#1E3A8A;color:white;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;'>🖨️ Print</button>"
     +"<button onclick='window.close()' style='background:#EF4444;color:white;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;'>✕</button></div>";
-  html+="<h2 style='font-size:11pt;margin-bottom:2px;'>Leave Distribution — "+y2+" (AL & C-OFF)</h2>";
-  html+="<p style='font-size:7pt;color:#64748B;margin-bottom:6px;'>Working days of Annual Leave and Compensatory Off per month</p>";
+  html+="<h2 style='font-size:11pt;margin-bottom:2px;'>Leave Distribution — "+y2+" (AL, C-OFF & OL)</h2>";
+  html+="<p style='font-size:7pt;color:#64748B;margin-bottom:6px;'>Working days of Annual Leave, Compensatory Off and Other Leave per month</p>";
 
   html+="<table><colgroup>"
     +"<col style='width:110px'/>"   // Employee
@@ -5575,16 +5655,23 @@ function doPrintLeaveDistribution() {
     // Build month totals array — index 0=Jan, 11=Dec
     var mt=[0,0,0,0,0,0,0,0,0,0,0,0];
     var gt=0;
+    var mt_al=[0,0,0,0,0,0,0,0,0,0,0,0];
+    var mt_co=[0,0,0,0,0,0,0,0,0,0,0,0];
+    var mt_ol=[0,0,0,0,0,0,0,0,0,0,0,0];
     STATE.lreqs.forEach(function(lr){
       if(lr.empId!==emp.id||lr.status!=='approved')return;
-      if(lr.lt!=='annual'&&lr.lt!=='coff')return;
+      if(lr.lt!=='annual'&&lr.lt!=='coff'&&lr.lt!=='other')return;
       if(parseInt(lr.from.slice(0,4))!==y2)return;
       rangeD(lr.from,lr.to).forEach(function(ds){
         if(ds.slice(0,4)!==String(y2))return;
-        var mm=parseInt(ds.slice(5,7))-1; // 0=Jan
+        var mm=parseInt(ds.slice(5,7))-1;
         if(mm<0||mm>11)return;
         var dv_d=doy(parseDs(ds));
-        if(getEmpEffectiveShift(emp,ds,dv_d)!=='off'){mt[mm]++;gt++;}
+        if(getEmpEffectiveShift(emp,ds,dv_d)!=='off'){
+          if(lr.lt==='annual'){mt_al[mm]++;gt++;}
+          else if(lr.lt==='coff'){mt_co[mm]++;gt++;}
+          else if(lr.lt==='other'){mt_ol[mm]++;gt++;}
+        }
       });
     });
     var rc=getR(getEmpRoleAtMonth(emp,y2,STATE.month));
@@ -5593,17 +5680,22 @@ function doPrintLeaveDistribution() {
     html+="<td style='"+td+"text-align:left;padding-left:4px;font-weight:bold;font-size:6.5pt;'>"+emp.name+"</td>";
     html+="<td style='"+td+"font-size:6pt;'>"+emp.group+"</td>";
     html+="<td style='"+td+"background:"+rc.cl+"22;color:"+rc.cl+";font-weight:bold;font-size:6pt;'>"+getRTitle(rc.sh)+"</td>";
-    // All 12 months in order
+    // All 12 months in order — show AL/C-OFF/OL in each cell
     for(var mi2=0;mi2<12;mi2++){
-      var v=mt[mi2];
+      var vAl=mt_al[mi2],vCo=mt_co[mi2],vOl=mt_ol[mi2],vTot=vAl+vCo+vOl;
       var isCur2=(mi2===m2);
-      html+="<td style='"+td+(v>0?";background:#FEF3C7;color:#92400E;font-weight:bold":";color:#CBD5E1")+(isCur2?";border:1.5px solid #2563EB;":"")+";'>"+(v>0?v+"d":"—")+"</td>";
+      var cellTxt="";
+      if(vAl>0)cellTxt+="<span style='color:#92400E;font-weight:bold;'>"+vAl+"</span>";
+      if(vCo>0)cellTxt+=(cellTxt?"<span style='color:#64748B;font-size:5.5pt;'>/</span>":"")+"<span style='color:#0E7490;font-weight:bold;'>"+vCo+"</span>";
+      if(vOl>0)cellTxt+=(cellTxt?"<span style='color:#64748B;font-size:5.5pt;'>/</span>":"")+"<span style='color:#881337;font-weight:bold;'>"+vOl+"</span>";
+      if(!cellTxt)cellTxt="<span style='color:#CBD5E1;'>—</span>";
+      html+="<td style='"+td+(isCur2?";border:1.5px solid #2563EB;":"")+";'>" +cellTxt+"</td>";
     }
     html+="<td style='"+td+"font-weight:bold;color:"+(gt>0?"#1E3A8A":"#CBD5E1")+";background:"+(gt>0?"#EFF6FF":"transparent")+"'>"+(gt>0?gt+"d":"—")+"</td>";
     html+="</tr>";
   });
   html+="</tbody></table>";
-  html+="<p style='margin-top:6px;font-size:6pt;color:#94A3B8;'>Generated: "+new Date().toLocaleDateString()+" | AL & C-OFF only | Current month highlighted in blue</p>";
+  html+="<p style='margin-top:6px;font-size:6pt;color:#94A3B8;'>Generated: "+new Date().toLocaleDateString()+" | <span style='color:#92400E;font-weight:bold;'>AL</span> / <span style='color:#0E7490;font-weight:bold;'>C-OFF</span> / <span style='color:#881337;font-weight:bold;'>OL</span> | Current month highlighted in blue</p>";
   html+="</body></html>";
   var w=window.open("","_blank","width=1200,height=750");
   if(w){w.document.write(html);w.document.close();}
