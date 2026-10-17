@@ -2674,6 +2674,11 @@ function renderLeaves() {
       ge.sort(function(a,b){return a.order-b.order;});
       for (var ei2 = 0; ei2 < ge.length; ei2++) empOpts.push([ge[ei2].id, ge[ei2].name+" (Grp "+g+")"]);
     }
+    // Also include G-group employees
+    var gGrpEmps = [];
+    for (var k3g in emps) if (emps[k3g].group === "G") gGrpEmps.push(emps[k3g]);
+    gGrpEmps.sort(function(a,b){return a.order-b.order;});
+    for (var gi3 = 0; gi3 < gGrpEmps.length; gi3++) empOpts.push([gGrpEmps[gi3].id, gGrpEmps[gi3].name+" (G)"]);
     var ltOpts = [];
     for (var lk in LC) ltOpts.push([lk, LC[lk].lb]);
     ltOpts.push(["overtime","Overtime"]);
@@ -2821,7 +2826,13 @@ function renderLeaves() {
     if (STATE.filterSt !== "all" && req.status !== STATE.filterSt) continue;
     filtered.push(req);
   }
-  filtered.sort(function(a,b){return new Date(b.requestedAt)-new Date(a.requestedAt);});
+  // When a specific employee is selected → sort by leave start date (ascending)
+  // When showing all → sort by request submission time (newest first)
+  if (STATE.filterEmp) {
+    filtered.sort(function(a,b){return a.from < b.from ? -1 : a.from > b.from ? 1 : 0;});
+  } else {
+    filtered.sort(function(a,b){return new Date(b.requestedAt)-new Date(a.requestedAt);});
+  }
   if (!filtered.length) { wrap.appendChild(mkEl("div","text-align:center;padding:28px;color:#64748B;","No requests")); return wrap; }
 
   var stC = {pending:"#F59E0B",approved:"#10B981",rejected:"#EF4444"};
@@ -5199,6 +5210,20 @@ function renderPortal() {
     // Add to main lreqs as pending — admin approves from Leaves tab
     STATE.lreqs.push({id:pr.id,empId:pr.empId,lt:pr.lt,from:pr.from,to:pr.to,reason:pr.reason,status:"pending",requestedAt:pr.requestedAt});
     sLS("sc6_lreqs",STATE.lreqs);
+    // Also add to Annual Plan so it appears in plan view
+    var prEmp = STATE.emps[pr.empId];
+    if(prEmp){
+      var prYear = parseInt(pr.from.slice(0,4));
+      var prMonthIdx = parseInt(pr.from.slice(5,7))-1;
+      if(!STATE.annualPlan) STATE.annualPlan={};
+      if(!STATE.annualPlan[prYear]) STATE.annualPlan[prYear]={};
+      if(!STATE.annualPlan[prYear][pr.empId]) STATE.annualPlan[prYear][pr.empId]=[];
+      var prDts=rangeD(pr.from,pr.to);
+      var prWorkDays=0;
+      for(var pwi=0;pwi<prDts.length;pwi++){if(getEmpEffectiveShift(prEmp,prDts[pwi],doy(new Date(prDts[pwi])))!=="off")prWorkDays++;}
+      STATE.annualPlan[prYear][pr.empId].push({id:pr.id,month:prMonthIdx,from:pr.from,to:pr.to,days:prWorkDays,calDays:prDts.length,note:pr.reason||"Portal request",status:"pending",addedAt:pr.requestedAt});
+      sLS("sc6_annualplan",STATE.annualPlan);
+    }
     showNotif("✅ Request submitted — pending admin approval");
     pEmpSel.value="";pFrom.value="";pTo.value="";pReason.value="";render();
   },"border-radius:8px;font-size:12px;margin-top:8px;"));
@@ -5840,6 +5865,7 @@ function doPrintGroups() {
   }
 
   // ── 📌 Save for Next Month ─────────────────────────────────────────────
+  html += "<div class='np'>"; // wrap in np so it's hidden when printing
   var nextPgM=m===11?0:m+1, nextPgY=m===11?y+1:y;
   var nextPgKey=nextPgY+"-"+nextPgM;
   var MONTHS_F=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -5872,6 +5898,7 @@ function doPrintGroups() {
   html+="</tbody></table>";
   html+="<p style='margin-top:6px;font-size:7pt;color:#7C3AED;font-style:italic;'>→ To apply: Stats → Custom Groups → 📌 Save for "+MONTHS_F[nextPgM]+"</p>";
   html+="</div>";
+  html += "</div>"; // close np wrapper
 
   html += "</body></html>";
   var w=window.open("","_blank","width=800,height=900");
