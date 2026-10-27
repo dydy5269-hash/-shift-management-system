@@ -3110,8 +3110,15 @@ function renderStaff() {
             if (apprCnt2 > 0) eRow2.appendChild(mkChip("✅"+apprCnt2,"#064E3B33","#34D399"));
             var tlog2 = STATE.transferLog && STATE.transferLog[emp6.id];
             if (tlog2 && tlog2.daysOwed > 0) eRow2.appendChild(mkChip("🔄 "+tlog2.daysOwed+" OFF","#78350F33","#FCD34D"));
-            // Cancel transfer button — shown if employee has an active transfer
+            // Cancel / Edit transfer buttons — shown if employee has an active transfer
             if (tlog2 && tlog2.startDate) {
+              // Edit transfer dates button
+              var editTrBtn = mkBtn("✏️ Edit Dates","#0F172A",function(){
+                requireAdmin(function(){
+                  openEditTransferDates(emp6.id, emp6, tlog2);
+                });
+              },"border:1px solid #0EA5E966;color:#38BDF8;border-radius:5px;padding:3px 7px;font-size:9px;");
+              eRow2.appendChild(editTrBtn);
               var cancelTrBtn = mkBtn("✕ Cancel Transfer","#7F1D1D22",function(){
                 requireAdmin(function(){
                   if(!confirm("Cancel transfer for "+emp6.name+"? They will return to Group "+
@@ -3145,16 +3152,23 @@ function renderStaff() {
                 var upB=mkBtn("↑","#1E293B",function(){
                   requireAdmin(function(){
                     if(i_r===0)return;
-                    var prev=list_r[i_r-1],tmp=e_r.order;
-                    e_r.order=prev.order;prev.order=tmp;
+                    var prev=list_r[i_r-1];
+                    // Ensure unique order values before swapping
+                    for(var _ri=0;_ri<list_r.length;_ri++) list_r[_ri].order=_ri*10;
+                    var tmp=list_r[i_r].order;
+                    list_r[i_r].order=list_r[i_r-1].order;
+                    list_r[i_r-1].order=tmp;
                     sLS("sc6_emps",STATE.emps);render();
                   });
                 },"border:1px solid #334155;color:"+(isFirst?"#334155":"#94A3B8")+";border-radius:5px;padding:2px 7px;font-size:12px;"+(isFirst?"cursor:not-allowed;":""));
                 var dnB=mkBtn("↓","#1E293B",function(){
                   requireAdmin(function(){
                     if(i_r===list_r.length-1)return;
-                    var next=list_r[i_r+1],tmp=e_r.order;
-                    e_r.order=next.order;next.order=tmp;
+                    // Ensure unique order values before swapping
+                    for(var _ri=0;_ri<list_r.length;_ri++) list_r[_ri].order=_ri*10;
+                    var tmp=list_r[i_r].order;
+                    list_r[i_r].order=list_r[i_r+1].order;
+                    list_r[i_r+1].order=tmp;
                     sLS("sc6_emps",STATE.emps);render();
                   });
                 },"border:1px solid #334155;color:"+(isLast?"#334155":"#94A3B8")+";border-radius:5px;padding:2px 7px;font-size:12px;"+(isLast?"cursor:not-allowed;":""));
@@ -3623,6 +3637,65 @@ function openExtraMarkModal(eid) {
     mkBtn("Close","#374151",function(){o.remove();},"border-radius:7px;padding:9px 13px;font-size:12px;color:#94A3B8;")
   );
   box.appendChild(btnRow6);
+
+  o.appendChild(box); document.body.appendChild(o);
+  o.onclick = function(e){if(e.target===o)o.remove();};
+}
+
+function openEditTransferDates(eid, emp, tlog) {
+  var old = document.getElementById("etr-ov"); if (old && old.parentNode) old.parentNode.removeChild(old);
+  var o = document.createElement("div");
+  o.id = "etr-ov";
+  o.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;direction:rtl;";
+  var box = mkEl("div","background:#1E293B;border-radius:14px;padding:20px;width:90%;max-width:400px;border:1px solid #334155;");
+
+  ap(box, mkEl("div","font-size:11px;color:#64748B;margin-bottom:3px;","Edit transfer dates:"));
+  ap(box, mkEl("div","font-size:15px;font-weight:800;color:#F8FAFC;margin-bottom:2px;",emp.name));
+  var fromGrp2 = tlog.fromGroup || (tlog.oldGi>=0?GR[tlog.oldGi]:"?");
+  var toGrp2   = tlog.toGroup   || (tlog.newGi>=0?GR[tlog.newGi]:"G");
+  ap(box, mkEl("div","font-size:12px;color:#A78BFA;margin-bottom:14px;font-weight:600;","Group "+fromGrp2+" → Group "+toGrp2));
+
+  // Start date
+  var startBox = mkEl("div","margin-bottom:10px;");
+  var startInp = mkInp("","","date");
+  startInp.value = tlog.startDate || "";
+  startBox.appendChild(mkLbl("Transfer Start Date:", startInp));
+  box.appendChild(startBox);
+
+  // End date (only relevant for temp transfers)
+  var isTemp = !!tlog.endDate;
+  var endBox = mkEl("div","margin-bottom:12px;");
+  var endLabel = mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","End Date (last day — leave empty for permanent transfer):");
+  var endInp = mkInp("","","date");
+  endInp.value = tlog.endDate || "";
+  ap(endBox, endLabel, endInp);
+  box.appendChild(endBox);
+
+  // Info
+  var infoEl = mkEl("div","font-size:10px;color:#64748B;margin-bottom:14px;padding:6px 9px;background:#0F172A;border-radius:6px;",
+    "تعديل التواريخ لن يغير أيام الـ C-OFF المُعطاة مسبقاً. لإعادة الحساب، ألغِ النقل وأعِد إنشاءه.");
+  box.appendChild(infoEl);
+
+  var btnRow = mkRow("gap:8px;");
+  ap(btnRow,
+    mkBtn("✅ Save","#0369A1",function(){
+      var sd = startInp.value.trim();
+      var ed = endInp.value.trim();
+      if (!sd) { showNotif("⚠️ يجب اختيار تاريخ البداية", true); return; }
+      if (ed && ed <= sd) { showNotif("⚠️ تاريخ النهاية يجب أن يكون بعد تاريخ البداية", true); return; }
+      requireAdmin(function(){
+        STATE.transferLog[eid].startDate = sd;
+        STATE.transferLog[eid].endDate = ed || null;
+        sLS("sc6_transferlog", STATE.transferLog);
+        STATE.covData = computeCov(STATE.emps, STATE.lreqs, STATE.year, STATE.month);
+        showNotif("✅ تم تحديث تواريخ النقل لـ "+emp.name);
+        o.remove();
+        render();
+      });
+    },"border-radius:8px;font-size:12px;"),
+    mkBtn("إلغاء","#374151",function(){o.remove();},"border-radius:8px;font-size:12px;color:#94A3B8;border:1px solid #334155;")
+  );
+  box.appendChild(btnRow);
 
   o.appendChild(box); document.body.appendChild(o);
   o.onclick = function(e){if(e.target===o)o.remove();};
