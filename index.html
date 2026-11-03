@@ -305,7 +305,10 @@ function hpw(s) {
 }
 function sLS(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} }
 function lLS(k, fb) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch(e) { return fb; } }
-function doy(date) { return Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000) - 1; }
+// Fixed epoch (2019-12-14) so rotation is continuous across year boundaries.
+// Calibrated to match the Dec-2026 schedule exactly while fixing Jan-2027 continuation.
+var DOY_EPOCH = new Date(2019, 11, 14).getTime();
+function doy(date) { return Math.floor((date.getTime() - DOY_EPOCH) / 86400000); }
 function shiftFor(gi, d) {
   if (gi < 0) return "morning"; // General group (G) — always morning when working
   return ROT[gi % 5][((d % 10) + 10) % 10];
