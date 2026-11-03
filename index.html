@@ -503,7 +503,7 @@ var STATE = {
   admins: null, emps: null, lreqs: null, rules: null, roleTitles: null,
   notifTimer: null, addGrp: null, editEmpId: null,
   leaveForm: {empId:"",from:"",to:"",lt:"annual",reason:""},
-  filterEmp: "", filterSt: "all", filterMonth: "", showLeaveForm: false,
+  filterEmp: "", filterSt: "all", filterMonth: "", filterYear: "", showLeaveForm: false,
   staffGroupMonth: null,
   staffViewYear: null, staffViewMonth: null,
   theme: "dark",
@@ -2803,6 +2803,14 @@ function renderLeaves() {
   var fOpts2 = [["","All employees"]]; for (var k4 in emps) fOpts2.push([k4,emps[k4].name]);
   var fSel = mkSel(STATE.filterEmp, fOpts2); fSel.onchange = function(e){STATE.filterEmp=e.target.value;render();};
   filterRow.appendChild(fSel);
+  // Year filter
+  var yOpts2 = [["","All years"]];
+  var yrSet = {}; for(var ri_y=0;ri_y<lreqs.length;ri_y++){var fy=lreqs[ri_y].from?lreqs[ri_y].from.slice(0,4):"";if(fy)yrSet[fy]=1;}
+  var yrList = Object.keys(yrSet).sort();
+  for(var yi2=0;yi2<yrList.length;yi2++) yOpts2.push([yrList[yi2], yrList[yi2]]);
+  var ySel = mkSel(STATE.filterYear, yOpts2);
+  ySel.onchange = function(e){STATE.filterYear=e.target.value;render();};
+  filterRow.appendChild(ySel);
   // Month filter
   var mOpts2 = [["","All months"]];
   for (var mi2 = 0; mi2 < 12; mi2++) mOpts2.push([String(mi2+1<10?"0"+(mi2+1):mi2+1), MAR[mi2]]);
@@ -2828,23 +2836,34 @@ function renderLeaves() {
     var req = lreqs[ri2];
     if (STATE.filterEmp && req.empId !== STATE.filterEmp) continue;
     if (STATE.filterSt !== "all" && req.status !== STATE.filterSt) continue;
+    // Year filter: leave must overlap the selected year
+    if (STATE.filterYear) {
+      var selY = parseInt(STATE.filterYear);
+      var fyFrom = req.from ? parseInt(req.from.slice(0,4)) : 0;
+      var fyTo   = req.to   ? parseInt(req.to.slice(0,4))   : fyFrom;
+      if (selY < fyFrom || selY > fyTo) continue;
+    }
+    // Month filter: leave must overlap the selected month (within selected year if any)
     if (STATE.filterMonth) {
-      // Show leave if it overlaps the selected month (any year)
-      var fmFrom = req.from ? req.from.slice(5,7) : "";
-      var fmTo   = req.to   ? req.to.slice(5,7)   : fmFrom;
       var fmFromY = req.from ? parseInt(req.from.slice(0,4)) : 0;
       var fmToY   = req.to   ? parseInt(req.to.slice(0,4))   : fmFromY;
       var fmFromM = req.from ? parseInt(req.from.slice(5,7)) : 0;
       var fmToM   = req.to   ? parseInt(req.to.slice(5,7))   : fmFromM;
       var selM = parseInt(STATE.filterMonth);
-      // Check if the selected month appears in any year of the leave range
       var startN = fmFromY*12 + fmFromM;
       var endN   = fmToY*12   + fmToM;
-      var matched = false;
-      for(var yn = startN; yn <= endN; yn++){
-        if((yn%12 || 12) === selM){ matched = true; break; }
+      // If year filter active, only check that month in that year
+      var matched2 = false;
+      if (STATE.filterYear) {
+        var selY2 = parseInt(STATE.filterYear);
+        var chkN = selY2*12 + selM;
+        matched2 = (chkN >= startN && chkN <= endN);
+      } else {
+        for(var yn2 = startN; yn2 <= endN; yn2++){
+          if((yn2%12 || 12) === selM){ matched2 = true; break; }
+        }
       }
-      if(!matched) continue;
+      if(!matched2) continue;
     }
     filtered.push(req);
   }
