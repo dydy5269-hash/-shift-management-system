@@ -3149,8 +3149,12 @@ function renderStaff() {
             if (apprCnt2 > 0) eRow2.appendChild(mkChip("✅"+apprCnt2,"#064E3B33","#34D399"));
             var tlog2 = STATE.transferLog && STATE.transferLog[emp6.id];
             if (tlog2 && tlog2.daysOwed > 0) eRow2.appendChild(mkChip("🔄 "+tlog2.daysOwed+" OFF","#78350F33","#FCD34D"));
-            // Cancel transfer button — shown if employee has an active transfer
+            // Edit / Cancel transfer buttons — shown if employee has an active transfer
             if (tlog2 && tlog2.startDate) {
+              var editTrBtn = mkBtn("✏️ Edit Dates","#0F172A",function(){
+                requireAdmin(function(){ openEditTransferDates(emp6.id, emp6, tlog2); });
+              },"border:1px solid #0EA5E966;color:#38BDF8;border-radius:5px;padding:3px 7px;font-size:9px;");
+              eRow2.appendChild(editTrBtn);
               var cancelTrBtn = mkBtn("✕ Cancel Transfer","#7F1D1D22",function(){
                 requireAdmin(function(){
                   if(!confirm("Cancel transfer for "+emp6.name+"? They will return to Group "+
@@ -3170,6 +3174,28 @@ function renderStaff() {
                 });
               },"border:1px solid #EF444466;color:#F87171;border-radius:5px;padding:3px 7px;font-size:9px;");
               eRow2.appendChild(cancelTrBtn);
+            }
+            // Show transfer history rows (previous transfers, archived)
+            var tHist2 = STATE.transferHistory && STATE.transferHistory[emp6.id];
+            if (tHist2 && tHist2.length > 0) {
+              for (var thi=0; thi<tHist2.length; thi++) {
+                var th2 = tHist2[thi];
+                var histRow = mkRow("padding:3px 11px;background:#0F172A;border-bottom:1px solid #1E293B;gap:5px;flex-wrap:wrap;");
+                histRow.appendChild(mkEl("span","font-size:9px;color:#475569;","↳ نقل سابق:"));
+                histRow.appendChild(mkBadge("Grp "+(th2.fromGroup||"?")+" → "+(th2.toGroup||"?"),"#1E293B","#64748B"));
+                histRow.appendChild(mkEl("span","font-size:9px;color:#475569;",fmtD(th2.startDate)+(th2.endDate?" → "+fmtD(th2.endDate):" (دائم)")));
+                (function(th_entry, thi_idx){
+                  histRow.appendChild(mkBtn("🗑️","#7F1D1D22",function(){
+                    requireAdmin(function(){
+                      STATE.transferHistory[emp6.id].splice(thi_idx,1);
+                      if(STATE.transferHistory[emp6.id].length===0) delete STATE.transferHistory[emp6.id];
+                      sLS("sc6_transferhistory",STATE.transferHistory);
+                      render();
+                    });
+                  },"border:1px solid #EF444433;color:#F8717188;border-radius:4px;padding:1px 5px;font-size:9px;"));
+                })(th2, thi);
+                empList2.appendChild(histRow);
+              }
             }
             var todayDs2 = mkDs(STATE.year, STATE.month, new Date().getDate());
             if (isMarkedExtra(emp6, todayDs2)) eRow2.appendChild(mkChip("➕ Extra now","#1D4ED833","#93C5FD"));
@@ -3667,6 +3693,55 @@ function openExtraMarkModal(eid) {
   o.onclick = function(e){if(e.target===o)o.remove();};
 }
 
+function openEditTransferDates(eid, emp, tlog) {
+  var old = document.getElementById("etr-ov"); if (old) old.remove();
+  var o = document.createElement("div");
+  o.id = "etr-ov";
+  o.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;direction:rtl;";
+  var box = mkEl("div","background:#1E293B;border-radius:14px;padding:20px;width:90%;max-width:400px;border:1px solid #334155;");
+
+  ap(box, mkEl("div","font-size:11px;color:#64748B;margin-bottom:3px;","تعديل تواريخ النقل:"));
+  ap(box, mkEl("div","font-size:15px;font-weight:800;color:#F8FAFC;margin-bottom:2px;",emp.name));
+  var fg = tlog.fromGroup || (tlog.oldGi>=0?GR[tlog.oldGi]:"?");
+  var tg = tlog.toGroup   || (tlog.newGi>=0?GR[tlog.newGi]:"G");
+  ap(box, mkEl("div","font-size:12px;color:#A78BFA;margin-bottom:14px;font-weight:600;","Group "+fg+" → Group "+tg));
+
+  var startBox = mkEl("div","margin-bottom:10px;");
+  var startInp = mkInp("","","date"); startInp.value = tlog.startDate || "";
+  startBox.appendChild(mkLbl("تاريخ بداية النقل:", startInp));
+  box.appendChild(startBox);
+
+  var endBox = mkEl("div","margin-bottom:12px;");
+  var endLbl = mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","تاريخ نهاية النقل (اتركه فارغاً للنقل الدائم):");
+  var endInp = mkInp("","","date"); endInp.value = tlog.endDate || "";
+  ap(endBox, endLbl, endInp);
+  box.appendChild(endBox);
+
+  ap(box, mkEl("div","font-size:10px;color:#64748B;margin-bottom:14px;padding:6px 9px;background:#0F172A;border-radius:6px;",
+    "ملاحظة: تعديل التواريخ لن يغير أيام الـ C-OFF المُعطاة مسبقاً."));
+
+  var btnRow = mkRow("gap:8px;");
+  ap(btnRow,
+    mkBtn("✅ حفظ","#0369A1",function(){
+      var sd = startInp.value.trim(), ed = endInp.value.trim();
+      if(!sd){showNotif("⚠️ يجب اختيار تاريخ البداية",true);return;}
+      if(ed && ed<=sd){showNotif("⚠️ تاريخ النهاية يجب أن يكون بعد البداية",true);return;}
+      requireAdmin(function(){
+        STATE.transferLog[eid].startDate = sd;
+        STATE.transferLog[eid].endDate = ed || null;
+        sLS("sc6_transferlog",STATE.transferLog);
+        STATE.covData=computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
+        showNotif("✅ تم تحديث تواريخ النقل لـ "+emp.name);
+        o.remove(); render();
+      });
+    },"border-radius:8px;font-size:12px;"),
+    mkBtn("إلغاء","#374151",function(){o.remove();},"border-radius:8px;font-size:12px;color:#94A3B8;border:1px solid #334155;")
+  );
+  box.appendChild(btnRow);
+  o.appendChild(box); document.body.appendChild(o);
+  o.onclick = function(e){if(e.target===o)o.remove();};
+}
+
 function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
   var old = document.getElementById("tr-ov"); if (old && old.parentNode) old.parentNode.removeChild(old);
   var container = document.body || document.documentElement;
@@ -3850,10 +3925,14 @@ function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
       if (hasEndDate && endDate <= calc.sd) { showNotif("⚠️ End date must be after the start date", true); return; }
       requireAdmin(function(){
         if(!STATE.transferLog) STATE.transferLog={};
-        // Store oldGi so schedule before transfer date uses old rotation,
-        // and optionally an endDate so the employee automatically reverts
-        // to their original group's rotation once that date passes — no
-        // manual follow-up action needed.
+        // If employee already has an active transfer, archive it to history first
+        if(STATE.transferLog[eid] && STATE.transferLog[eid].startDate) {
+          if(!STATE.transferHistory) STATE.transferHistory={};
+          if(!STATE.transferHistory[eid]) STATE.transferHistory[eid]=[];
+          STATE.transferHistory[eid].push(STATE.transferLog[eid]);
+          sLS("sc6_transferhistory", STATE.transferHistory);
+        }
+        // Store new transfer (overwrites active slot — history preserves the old one)
         STATE.transferLog[eid]={
           name:emp.name, fromGroup:fromGrp, toGroup:toGrp,
           startDate:calc.sd,
@@ -4980,7 +5059,7 @@ function renderExcel() {
     requireAdmin(function(){
       var keys=["sc6_admins","sc6_emps","sc6_lreqs","sc6_rules","sc6_linkedemployees",
         "sc6_otassign","sc6_slotassign","sc6_lockedmonths","sc6_roletitles",
-        "sc6_shiftoverride","sc6_transferlog","sc6_extraranges","sc6_annualplan",
+        "sc6_shiftoverride","sc6_transferlog","sc6_transferhistory","sc6_extraranges","sc6_annualplan",
         "sc6_customgroups","sc6_holidays"];
       var backup={version:2, exportedAt:new Date().toISOString(), data:{}};
       keys.forEach(function(k){
@@ -5072,7 +5151,7 @@ function renderExcel() {
   function buildSafeBackup2(){
     var keys=["sc6_admins","sc6_emps","sc6_lreqs","sc6_linkedemployees",
       "sc6_otassign","sc6_slotassign","sc6_lockedmonths","sc6_roletitles",
-      "sc6_shiftoverride","sc6_transferlog","sc6_extraranges","sc6_annualplan",
+      "sc6_shiftoverride","sc6_transferlog","sc6_transferhistory","sc6_extraranges","sc6_annualplan",
       "sc6_customgroups","sc6_holidays","sc6_leavebalance","sc6_rolehistory","sc6_theme"];
     var bk={v:2,at:new Date().toISOString().slice(0,16),d:{}};
     keys.forEach(function(k){var v=localStorage.getItem(k);if(v)bk.d[k]=v;});
@@ -7134,6 +7213,7 @@ function init() {
   STATE.roleTitles = lLS("sc6_roletitles", {});
   STATE.shiftOverride = lLS("sc6_shiftoverride", {});
   STATE.transferLog = lLS("sc6_transferlog", {});
+  STATE.transferHistory = lLS("sc6_transferhistory", {});
   STATE.extraRanges = lLS("sc6_extraranges", {});
   STATE.annualPlan = lLS("sc6_annualplan", {});
   STATE.customGroups = lLS("sc6_customgroups", {});
