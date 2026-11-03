@@ -500,7 +500,7 @@ var STATE = {
   admins: null, emps: null, lreqs: null, rules: null, roleTitles: null,
   notifTimer: null, addGrp: null, editEmpId: null,
   leaveForm: {empId:"",from:"",to:"",lt:"annual",reason:""},
-  filterEmp: "", filterSt: "all", showLeaveForm: false,
+  filterEmp: "", filterSt: "all", filterMonth: "", showLeaveForm: false,
   staffGroupMonth: null,
   staffViewYear: null, staffViewMonth: null,
   theme: "dark",
@@ -2674,11 +2674,6 @@ function renderLeaves() {
       ge.sort(function(a,b){return a.order-b.order;});
       for (var ei2 = 0; ei2 < ge.length; ei2++) empOpts.push([ge[ei2].id, ge[ei2].name+" (Grp "+g+")"]);
     }
-    // Also include G-group employees
-    var gGrpEmps = [];
-    for (var k3g in emps) if (emps[k3g].group === "G") gGrpEmps.push(emps[k3g]);
-    gGrpEmps.sort(function(a,b){return a.order-b.order;});
-    for (var gi3 = 0; gi3 < gGrpEmps.length; gi3++) empOpts.push([gGrpEmps[gi3].id, gGrpEmps[gi3].name+" (G)"]);
     var ltOpts = [];
     for (var lk in LC) ltOpts.push([lk, LC[lk].lb]);
     ltOpts.push(["overtime","Overtime"]);
@@ -2801,10 +2796,16 @@ function renderLeaves() {
   }
   wrap.appendChild(fCard);
 
-  var filterRow = mkRow("margin-bottom:10px;gap:7px;");
-  var fOpts2 = [["","All"]]; for (var k4 in emps) fOpts2.push([k4,emps[k4].name]);
+  var filterRow = mkRow("margin-bottom:10px;gap:7px;flex-wrap:wrap;");
+  var fOpts2 = [["","All employees"]]; for (var k4 in emps) fOpts2.push([k4,emps[k4].name]);
   var fSel = mkSel(STATE.filterEmp, fOpts2); fSel.onchange = function(e){STATE.filterEmp=e.target.value;render();};
   filterRow.appendChild(fSel);
+  // Month filter
+  var mOpts2 = [["","All months"]];
+  for (var mi2 = 0; mi2 < 12; mi2++) mOpts2.push([String(mi2+1<10?"0"+(mi2+1):mi2+1), MAR[mi2]]);
+  var mSel = mkSel(STATE.filterMonth, mOpts2);
+  mSel.onchange = function(e){STATE.filterMonth=e.target.value;render();};
+  filterRow.appendChild(mSel);
   var stBtns = mkRow("gap:3px;");
   var stOpts = [["all","All"],["pending","⏳"],["approved","✅"],["rejected","❌"]];
   for (var sti2 = 0; sti2 < stOpts.length; sti2++) {
@@ -2824,10 +2825,26 @@ function renderLeaves() {
     var req = lreqs[ri2];
     if (STATE.filterEmp && req.empId !== STATE.filterEmp) continue;
     if (STATE.filterSt !== "all" && req.status !== STATE.filterSt) continue;
+    if (STATE.filterMonth) {
+      // Show leave if it overlaps the selected month (any year)
+      var fmFrom = req.from ? req.from.slice(5,7) : "";
+      var fmTo   = req.to   ? req.to.slice(5,7)   : fmFrom;
+      var fmFromY = req.from ? parseInt(req.from.slice(0,4)) : 0;
+      var fmToY   = req.to   ? parseInt(req.to.slice(0,4))   : fmFromY;
+      var fmFromM = req.from ? parseInt(req.from.slice(5,7)) : 0;
+      var fmToM   = req.to   ? parseInt(req.to.slice(5,7))   : fmFromM;
+      var selM = parseInt(STATE.filterMonth);
+      // Check if the selected month appears in any year of the leave range
+      var startN = fmFromY*12 + fmFromM;
+      var endN   = fmToY*12   + fmToM;
+      var matched = false;
+      for(var yn = startN; yn <= endN; yn++){
+        if((yn%12 || 12) === selM){ matched = true; break; }
+      }
+      if(!matched) continue;
+    }
     filtered.push(req);
   }
-  // When a specific employee is selected → sort by leave start date (ascending)
-  // When showing all → sort by request submission time (newest first)
   if (STATE.filterEmp) {
     filtered.sort(function(a,b){return a.from < b.from ? -1 : a.from > b.from ? 1 : 0;});
   } else {
@@ -3110,15 +3127,8 @@ function renderStaff() {
             if (apprCnt2 > 0) eRow2.appendChild(mkChip("✅"+apprCnt2,"#064E3B33","#34D399"));
             var tlog2 = STATE.transferLog && STATE.transferLog[emp6.id];
             if (tlog2 && tlog2.daysOwed > 0) eRow2.appendChild(mkChip("🔄 "+tlog2.daysOwed+" OFF","#78350F33","#FCD34D"));
-            // Cancel / Edit transfer buttons — shown if employee has an active transfer
+            // Cancel transfer button — shown if employee has an active transfer
             if (tlog2 && tlog2.startDate) {
-              // Edit transfer dates button
-              var editTrBtn = mkBtn("✏️ Edit Dates","#0F172A",function(){
-                requireAdmin(function(){
-                  openEditTransferDates(emp6.id, emp6, tlog2);
-                });
-              },"border:1px solid #0EA5E966;color:#38BDF8;border-radius:5px;padding:3px 7px;font-size:9px;");
-              eRow2.appendChild(editTrBtn);
               var cancelTrBtn = mkBtn("✕ Cancel Transfer","#7F1D1D22",function(){
                 requireAdmin(function(){
                   if(!confirm("Cancel transfer for "+emp6.name+"? They will return to Group "+
@@ -3152,23 +3162,16 @@ function renderStaff() {
                 var upB=mkBtn("↑","#1E293B",function(){
                   requireAdmin(function(){
                     if(i_r===0)return;
-                    var prev=list_r[i_r-1];
-                    // Ensure unique order values before swapping
-                    for(var _ri=0;_ri<list_r.length;_ri++) list_r[_ri].order=_ri*10;
-                    var tmp=list_r[i_r].order;
-                    list_r[i_r].order=list_r[i_r-1].order;
-                    list_r[i_r-1].order=tmp;
+                    var prev=list_r[i_r-1],tmp=e_r.order;
+                    e_r.order=prev.order;prev.order=tmp;
                     sLS("sc6_emps",STATE.emps);render();
                   });
                 },"border:1px solid #334155;color:"+(isFirst?"#334155":"#94A3B8")+";border-radius:5px;padding:2px 7px;font-size:12px;"+(isFirst?"cursor:not-allowed;":""));
                 var dnB=mkBtn("↓","#1E293B",function(){
                   requireAdmin(function(){
                     if(i_r===list_r.length-1)return;
-                    // Ensure unique order values before swapping
-                    for(var _ri=0;_ri<list_r.length;_ri++) list_r[_ri].order=_ri*10;
-                    var tmp=list_r[i_r].order;
-                    list_r[i_r].order=list_r[i_r+1].order;
-                    list_r[i_r+1].order=tmp;
+                    var next=list_r[i_r+1],tmp=e_r.order;
+                    e_r.order=next.order;next.order=tmp;
                     sLS("sc6_emps",STATE.emps);render();
                   });
                 },"border:1px solid #334155;color:"+(isLast?"#334155":"#94A3B8")+";border-radius:5px;padding:2px 7px;font-size:12px;"+(isLast?"cursor:not-allowed;":""));
@@ -3637,65 +3640,6 @@ function openExtraMarkModal(eid) {
     mkBtn("Close","#374151",function(){o.remove();},"border-radius:7px;padding:9px 13px;font-size:12px;color:#94A3B8;")
   );
   box.appendChild(btnRow6);
-
-  o.appendChild(box); document.body.appendChild(o);
-  o.onclick = function(e){if(e.target===o)o.remove();};
-}
-
-function openEditTransferDates(eid, emp, tlog) {
-  var old = document.getElementById("etr-ov"); if (old && old.parentNode) old.parentNode.removeChild(old);
-  var o = document.createElement("div");
-  o.id = "etr-ov";
-  o.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;direction:rtl;";
-  var box = mkEl("div","background:#1E293B;border-radius:14px;padding:20px;width:90%;max-width:400px;border:1px solid #334155;");
-
-  ap(box, mkEl("div","font-size:11px;color:#64748B;margin-bottom:3px;","Edit transfer dates:"));
-  ap(box, mkEl("div","font-size:15px;font-weight:800;color:#F8FAFC;margin-bottom:2px;",emp.name));
-  var fromGrp2 = tlog.fromGroup || (tlog.oldGi>=0?GR[tlog.oldGi]:"?");
-  var toGrp2   = tlog.toGroup   || (tlog.newGi>=0?GR[tlog.newGi]:"G");
-  ap(box, mkEl("div","font-size:12px;color:#A78BFA;margin-bottom:14px;font-weight:600;","Group "+fromGrp2+" → Group "+toGrp2));
-
-  // Start date
-  var startBox = mkEl("div","margin-bottom:10px;");
-  var startInp = mkInp("","","date");
-  startInp.value = tlog.startDate || "";
-  startBox.appendChild(mkLbl("Transfer Start Date:", startInp));
-  box.appendChild(startBox);
-
-  // End date (only relevant for temp transfers)
-  var isTemp = !!tlog.endDate;
-  var endBox = mkEl("div","margin-bottom:12px;");
-  var endLabel = mkEl("div","font-size:10px;color:#94A3B8;margin-bottom:4px;","End Date (last day — leave empty for permanent transfer):");
-  var endInp = mkInp("","","date");
-  endInp.value = tlog.endDate || "";
-  ap(endBox, endLabel, endInp);
-  box.appendChild(endBox);
-
-  // Info
-  var infoEl = mkEl("div","font-size:10px;color:#64748B;margin-bottom:14px;padding:6px 9px;background:#0F172A;border-radius:6px;",
-    "تعديل التواريخ لن يغير أيام الـ C-OFF المُعطاة مسبقاً. لإعادة الحساب، ألغِ النقل وأعِد إنشاءه.");
-  box.appendChild(infoEl);
-
-  var btnRow = mkRow("gap:8px;");
-  ap(btnRow,
-    mkBtn("✅ Save","#0369A1",function(){
-      var sd = startInp.value.trim();
-      var ed = endInp.value.trim();
-      if (!sd) { showNotif("⚠️ يجب اختيار تاريخ البداية", true); return; }
-      if (ed && ed <= sd) { showNotif("⚠️ تاريخ النهاية يجب أن يكون بعد تاريخ البداية", true); return; }
-      requireAdmin(function(){
-        STATE.transferLog[eid].startDate = sd;
-        STATE.transferLog[eid].endDate = ed || null;
-        sLS("sc6_transferlog", STATE.transferLog);
-        STATE.covData = computeCov(STATE.emps, STATE.lreqs, STATE.year, STATE.month);
-        showNotif("✅ تم تحديث تواريخ النقل لـ "+emp.name);
-        o.remove();
-        render();
-      });
-    },"border-radius:8px;font-size:12px;"),
-    mkBtn("إلغاء","#374151",function(){o.remove();},"border-radius:8px;font-size:12px;color:#94A3B8;border:1px solid #334155;")
-  );
-  box.appendChild(btnRow);
 
   o.appendChild(box); document.body.appendChild(o);
   o.onclick = function(e){if(e.target===o)o.remove();};
@@ -5283,20 +5227,6 @@ function renderPortal() {
     // Add to main lreqs as pending — admin approves from Leaves tab
     STATE.lreqs.push({id:pr.id,empId:pr.empId,lt:pr.lt,from:pr.from,to:pr.to,reason:pr.reason,status:"pending",requestedAt:pr.requestedAt});
     sLS("sc6_lreqs",STATE.lreqs);
-    // Also add to Annual Plan so it appears in plan view
-    var prEmp = STATE.emps[pr.empId];
-    if(prEmp){
-      var prYear = parseInt(pr.from.slice(0,4));
-      var prMonthIdx = parseInt(pr.from.slice(5,7))-1;
-      if(!STATE.annualPlan) STATE.annualPlan={};
-      if(!STATE.annualPlan[prYear]) STATE.annualPlan[prYear]={};
-      if(!STATE.annualPlan[prYear][pr.empId]) STATE.annualPlan[prYear][pr.empId]=[];
-      var prDts=rangeD(pr.from,pr.to);
-      var prWorkDays=0;
-      for(var pwi=0;pwi<prDts.length;pwi++){if(getEmpEffectiveShift(prEmp,prDts[pwi],doy(new Date(prDts[pwi])))!=="off")prWorkDays++;}
-      STATE.annualPlan[prYear][pr.empId].push({id:pr.id,month:prMonthIdx,from:pr.from,to:pr.to,days:prWorkDays,calDays:prDts.length,note:pr.reason||"Portal request",status:"pending",addedAt:pr.requestedAt});
-      sLS("sc6_annualplan",STATE.annualPlan);
-    }
     showNotif("✅ Request submitted — pending admin approval");
     pEmpSel.value="";pFrom.value="";pTo.value="";pReason.value="";render();
   },"border-radius:8px;font-size:12px;margin-top:8px;"));
@@ -5938,7 +5868,6 @@ function doPrintGroups() {
   }
 
   // ── 📌 Save for Next Month ─────────────────────────────────────────────
-  html += "<div class='np'>"; // wrap in np so it's hidden when printing
   var nextPgM=m===11?0:m+1, nextPgY=m===11?y+1:y;
   var nextPgKey=nextPgY+"-"+nextPgM;
   var MONTHS_F=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -5971,7 +5900,6 @@ function doPrintGroups() {
   html+="</tbody></table>";
   html+="<p style='margin-top:6px;font-size:7pt;color:#7C3AED;font-style:italic;'>→ To apply: Stats → Custom Groups → 📌 Save for "+MONTHS_F[nextPgM]+"</p>";
   html+="</div>";
-  html += "</div>"; // close np wrapper
 
   html += "</body></html>";
   var w=window.open("","_blank","width=800,height=900");
