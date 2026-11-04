@@ -5897,8 +5897,8 @@ function doPrintGroups() {
     html += "<th style='"+td_g+"'>Grp</th>";
     cgLeaveCodes.forEach(function(c){ html+="<th style='"+td_g+"'>"+c+"</th>"; });
     html += "<th style='"+td_g+"'>OT</th>";
-    html += "<th style='"+td_g+"'>AL Left</th>";
-    html += "<th style='"+td_g+"'>C-OFF Left</th>";
+    // AL Left column removed from print
+    // C-OFF Left column removed from print
     html += "</tr></thead><tbody>";
 
     activeEmps.forEach(function(emp8, ei8) {
@@ -5961,8 +5961,7 @@ function doPrintGroups() {
         html+="<td style='"+td_g+"text-align:center;"+(v>0?"background:"+(lc_k.pbg||"#E5E7EB")+";color:"+(lc_k.tx||"#1E293B")+";font-weight:bold;":"color:#CBD5E1;")+"'>"+v+"</td>";
       });
       html+="<td style='"+td_g+"text-align:center;"+(cgOt>0?"background:#FFD700;color:#000;font-weight:bold;":"color:#CBD5E1;")+"'>"+cgOt+"</td>";
-      html+="<td style='"+td_g+"text-align:center;font-weight:bold;color:"+(cgAlLeft<0?"#EF4444":cgAlLeft<=3?"#F59E0B":"#065F46")+"'>"+cgAlLeft+"d</td>";
-      html+="<td style='"+td_g+"text-align:center;font-weight:bold;color:"+(cgCoffLeft<0?"#EF4444":cgCoffLeft>0?"#0E7490":"#94A3B8")+"'>"+(cgCoffTotal>0?cgCoffLeft+"d":"—")+"</td>";
+      // AL Left and C-OFF Left cells removed from print
       html+="</tr>";
     });
     html += "</tbody></table></div>";
@@ -5975,7 +5974,7 @@ function doPrintGroups() {
   var nextHasData=STATE.customGroups&&STATE.customGroups[nextPgKey]&&
     STATE.customGroups[nextPgKey].some(function(g){return g.emps&&g.emps.length>0;});
 
-  html+="<div style='margin-top:16px;border:2px solid #7C3AED;border-radius:10px;padding:12px;background:#F5F3FF;page-break-inside:avoid;'>";
+  html+="<div class='no-print' style='margin-top:16px;border:2px solid #7C3AED;border-radius:10px;padding:12px;background:#F5F3FF;page-break-inside:avoid;'>";
   html+="<div style='font-size:10pt;font-weight:bold;color:#7C3AED;margin-bottom:6px;'>📌 Save for Next Month — "+MONTHS_F[nextPgM]+" "+nextPgY+"</div>";
   if(nextHasData){
     html+="<p style='font-size:8pt;color:#065F46;margin-bottom:8px;'>✅ Already saved for "+MONTHS_F[nextPgM]+" "+nextPgY+" · "+
