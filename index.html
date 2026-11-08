@@ -452,22 +452,24 @@ function getRolesEmpCountsToward(emp, ds) {
 function getEmpEffectiveShift(emp, ds, dv) {
   var ovr = STATE.shiftOverride && STATE.shiftOverride[emp.id] && STATE.shiftOverride[emp.id][ds];
   if (ovr) {
-    if (ovr === "general") return getGeneralShift(ds); // G override → weekday schedule
+    if (ovr === "general") return getGeneralShift(ds);
     return ovr;
   }
-  // General group (G) or gi=-1: use weekday-based schedule
-  if (emp.group === "G" || emp.gi < 0) return getGeneralShift(ds);
   var tr = STATE.transferLog && STATE.transferLog[emp.id];
   if (tr && tr.startDate) {
-    if (ds < tr.startDate) {
-      return shiftFor(tr.oldGi, dv);
-    } else if (tr.endDate && ds > tr.endDate) {
-      return shiftFor(tr.oldGi, dv);
-    } else {
-      // In transfer window — use new group (handle General gi=-1)
+    var inWindow = ds >= tr.startDate && (!tr.endDate || ds <= tr.endDate);
+    if (inWindow) {
+      // Inside transfer window: use new group's shift
       return (tr.newGi < 0) ? getGeneralShift(ds) : shiftFor(tr.newGi, dv);
     }
+    // Outside transfer window: use OLD group (before the transfer)
+    // tr.oldGi is the original group index before any transfer
+    if (tr.oldGi >= 0) return shiftFor(tr.oldGi, dv);
+    // oldGi = -1 means was already General before transfer
+    return getGeneralShift(ds);
   }
+  // No transfer: use employee's current group/gi
+  if (emp.group === "G" || emp.gi < 0) return getGeneralShift(ds);
   return shiftFor(emp.gi, dv);
 }
 
@@ -3983,6 +3985,8 @@ function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
           STATE.emps[eid].gi = newGi;
           STATE.emps[eid].order = maxOrd;
           sLS("sc6_emps",STATE.emps);
+          // Permanent transfer: transferLog is kept for history/date reference.
+          // getEmpGroupAtDate uses it to show old group for dates before startDate.
         }
 
         STATE.transferEmpId = null; STATE.transferMode = false;
@@ -7154,9 +7158,14 @@ function getLeaveUsed(empId, lt, year) {
 function getEmpGroupAtDate(emp, ds) {
   var tr = STATE.transferLog && STATE.transferLog[emp.id];
   if (tr && tr.startDate) {
-    if (ds < tr.startDate) return tr.oldGi >= 0 ? GR[tr.oldGi] : emp.group;
-    if (tr.endDate && ds > tr.endDate) return tr.oldGi >= 0 ? GR[tr.oldGi] : emp.group;
-    return tr.newGi >= 0 ? GR[tr.newGi] : "G"; // gi=-1 = General
+    if (!tr.endDate) {
+      // Permanent transfer: before startDate = old group, on/after = new group
+      if (ds < tr.startDate) return tr.fromGroup || (tr.oldGi >= 0 ? GR[tr.oldGi] : emp.group);
+      return tr.toGroup || (tr.newGi >= 0 ? GR[tr.newGi] : "G");
+    } else {
+      // Temporary transfer: employee stays in original group for Staff view purposes
+      return emp.group;
+    }
   }
   return emp.group;
 }
@@ -7213,6 +7222,8 @@ function init() {
   STATE.shiftOverride = lLS("sc6_shiftoverride", {});
   STATE.transferLog = lLS("sc6_transferlog", {});
   STATE.transferHistory = lLS("sc6_transferhistory", {});
+  // transferLog entries are kept for all transfer types — getEmpGroupAtDate
+  // handles permanent vs temporary logic using endDate presence.
   STATE.extraRanges = lLS("sc6_extraranges", {});
   STATE.annualPlan = lLS("sc6_annualplan", {});
   STATE.customGroups = lLS("sc6_customgroups", {});
