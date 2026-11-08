@@ -3946,32 +3946,7 @@ function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
         };
         sLS("sc6_transferlog",STATE.transferLog);
 
-        // Auto-create C-OFF compensation leaves if days owed > 0
-        if (calc.owed > 0) {
-          // Find calc.owed OFF days in the new group's schedule after transfer date
-          // and mark them as C-OFF leaves
-          var lmap2b = buildLmap(STATE.lreqs);
-          var offCount = 0;
-          var y2b = STATE.year, m2b = STATE.month, dim2b = daysInM(y2b,m2b);
-          for (var dc = 1; dc <= dim2b && offCount < calc.owed; dc++) {
-            var dsc = mkDs(y2b,m2b,dc);
-            if (dsc < calc.sd) continue; // only after transfer
-            if (hasEndDate && dsc > endDate) continue; // not past the temporary transfer's end
-            var dvc = doy(new Date(y2b,m2b,dc));
-            var shc = (newGi < 0) ? getGeneralShift(dsc) : shiftFor(newGi, dvc);
-            // Pick working days (not already off, not on leave) and grant C-OFF
-            if (shc !== "off" && !lmapGet(lmap2b,eid,dsc)) {
-              STATE.lreqs.push({
-                id:"off"+Date.now()+offCount,
-                empId:eid, from:dsc, to:dsc,
-                lt:"annual", reason:"Compensatory OFF from Group "+fromGrp+" → "+toGrp+" transfer (extra work days)",
-                status:"approved", requestedAt:new Date().toISOString()
-              });
-              offCount++;
-            }
-          }
-          sLS("sc6_lreqs",STATE.lreqs);
-        }
+        // No automatic leave grants on transfer — leaves are managed separately
 
         // For a PERMANENT transfer (no end date), update the employee's
         // group/gi right away so Staff tab and everywhere else reflects it
@@ -3993,7 +3968,7 @@ function openTransferDatePicker(eid, emp, fromGrp, toGrp, newGi, maxOrd) {
         STATE.covData = computeCov(STATE.emps,STATE.lreqs,STATE.year,STATE.month);
         var msg = "✅ "+emp.name+" → Group "+toGrp+" from "+fmtD(calc.sd);
         if (hasEndDate) msg += " until "+fmtD(endDate)+" (auto-reverts)";
-        if (calc.owed > 0) msg += " · "+calc.owed+" compensatory OFF day"+(calc.owed!==1?"s":"")+" granted";
+        // No automatic leave grants on transfer
         showNotif(msg); o.remove(); render();
       });
     },"flex:1;border-radius:8px;padding:10px;font-size:13px;font-weight:700;"),
@@ -6161,9 +6136,17 @@ function doPrint() {
       var tr9=STATE.transferLog&&STATE.transferLog[emp9.id];
       var emp9Group;
       if(tr9&&tr9.startDate){
-        if(printMonthDs<tr9.startDate) emp9Group=GR[tr9.oldGi];
-        else if(tr9.endDate&&printMonthDs>tr9.endDate) emp9Group=GR[tr9.oldGi];
-        else emp9Group=GR[tr9.newGi];
+        if(tr9.endDate){
+          // Temporary transfer: employee stays in original group in print view
+          emp9Group=emp9.group;
+        } else {
+          // Permanent transfer: show in old group if month is before startDate
+          if(printMonthDs<tr9.startDate){
+            emp9Group=tr9.fromGroup||(tr9.oldGi>=0?GR[tr9.oldGi]:emp9.group);
+          } else {
+            emp9Group=emp9.group; // already updated permanently
+          }
+        }
       } else {
         emp9Group=emp9.group;
       }
